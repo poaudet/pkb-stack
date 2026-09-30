@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: knowledge
+      POSTGRES_USER: khoj
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U khoj"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rclone:
+    image: rclone/rclone:latest
+    restart: unless-stopped
+    entrypoint: sh
+    command:
+      - -c
+      - "while true; do rclone sync protondrive:Notes /data --create-empty-src-dirs; sleep 900; done"
+    volumes:
+      - rclone_config:/config/rclone
+      - notes_data:/data
+
+  rag-server:
+    image: python:3.11-slim
+    working_dir: /app
+    command: python web.py
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./web.py:/app/web.py
+      - notes_data:/data/notes:ro
+    environment:
+      DATABASE_URL: postgresql://khoj:${DB_PASSWORD:?set in .env}@postgres:5432/knowledge
+      FLASK_ENV: production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:
+  rclone_config:
+  notes_data:
