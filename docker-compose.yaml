@@ -35,7 +35,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./web.py:/app/web.py
+      - /home/docker/pkb-stack/app:/app/
       - notes_data:/data/notes:ro
     environment:
       DATABASE_URL: postgresql://khoj:${DB_PASSWORD:?set in .env}@postgres:5432/knowledge
