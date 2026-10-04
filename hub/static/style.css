@@ -20,3 +20,4 @@ button.danger { background:#b3261e; border-color:#b3261e; }
 .badge { display:inline-block; padding:1px 8px; border-radius:10px; background:var(--mut); color:var(--bg); font-size:.8rem; margin-right:6px; }
 dialog { width:min(95vw,760px); background:var(--bg); color:var(--fg); border:1px solid var(--mut); border-radius:10px; }
 pre { white-space:pre-wrap; word-break:break-word; }
+[hidden] { display: none !important; }

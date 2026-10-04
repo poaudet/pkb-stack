@@ -34,6 +34,7 @@ function showTab(name) {
     s.hidden = s.id !== "tab-" + name;
   }
   if (name === "browse") loadBrowse();
+  if (name === "review") loadReview();
   if (name === "status") loadStatus();
 }
 
@@ -110,8 +111,10 @@ async function saveNote() {
   try {
     const body = { content: $("add-content").value, title: $("add-title").value,
       tags: $("add-tags").value.split(",").map((t) => t.trim()).filter(Boolean) };
-    await api("/api/notes", { method: "POST", body: JSON.stringify(body) });
-    msg.textContent = "Saved.";
+    if (llmOn && $("add-tidy").checked) body.preprocess = true;
+    const r = await api("/api/notes", { method: "POST", body: JSON.stringify(body) });
+    msg.textContent = r.pending ? "Queued for AI tidy-up. See Review." : "Saved.";
+    if (r.pending) refreshReviewCount();
     $("add-content").value = ""; $("add-title").value = ""; $("add-tags").value = "";
   } catch (e) {
     msg.textContent = e.message;
@@ -138,6 +141,9 @@ async function loadStatus() {
     const h = await api("/health");
     const s = await api("/api/stats");
     $("health").textContent = JSON.stringify({ health: h, stats: s }, null, 2);
+    $("llm-badge").textContent = !h.llm.configured ? "AI tidy-up: off"
+      : h.llm.local ? "LLM: local (" + h.llm.model + ")"
+      : "LLM: remote: note text leaves this machine (" + h.llm.model + ")";
   } catch (e) {
     $("health").textContent = e.message;
   }
@@ -156,3 +162,100 @@ $("backup").addEventListener("click", async () => {
   catch (e) { $("backup-msg").textContent = e.message; }
 });
 $("token-save").addEventListener("click", () => { localStorage.setItem("hub_token", $("token").value); loadStatus(); });
+
+let llmOn = false;
+let reviewTimer = null;
+
+async function refreshReviewCount() {
+  if (!llmOn) return;
+  try {
+    const res = await api("/api/pending?limit=200");
+    const open = res.items.filter((p) => ["queued", "processing", "ready", "failed"].includes(p.state));
+    $("review-count").textContent = open.length ? "(" + open.length + ")" : "";
+    clearTimeout(reviewTimer);
+    if (open.some((p) => p.state === "queued" || p.state === "processing")) {
+      reviewTimer = setTimeout(() => {
+        refreshReviewCount();
+        if (!$("tab-review").hidden && !$("review-detail").open) loadReview();
+      }, 3000);
+    }
+  } catch (e) { /* ignore */ }
+}
+
+async function loadReview() {
+  const list = $("r-list");
+  list.replaceChildren();
+  try {
+    const res = await api("/api/pending?limit=100");
+    const items = res.items.filter((p) => ["queued", "processing", "ready", "failed"].includes(p.state));
+    for (const p of items) {
+      const c = el("div", { className: "card" });
+      c.append(el("h3", { textContent: p.suggestion.title || "(untitled)" }));
+      c.append(el("div", { className: "meta" }, el("span", { className: "badge", textContent: p.state }),
+        document.createTextNode(p.error ? " " + p.error : "")));
+      if (p.state === "ready" || p.state === "failed") c.addEventListener("click", () => openPending(p.id));
+      list.append(c);
+    }
+    if (!items.length) list.append(el("p", { textContent: "Nothing to review." }));
+  } catch (e) {
+    list.append(el("p", { textContent: e.message }));
+  }
+  refreshReviewCount();
+}
+
+async function openPending(id) {
+  const dlg = $("review-detail");
+  const { pending: p } = await api("/api/pending/" + encodeURIComponent(id));
+  dlg.replaceChildren();
+  const title = el("input", { type: "text", value: p.suggestion.title || "" });
+  const content = el("textarea", { rows: 10, value: p.suggestion.content || "" });
+  const tags = el("input", { type: "text", value: p.suggestion.tags.join(", ") });
+  const msg = el("p", { className: "meta" });
+  const tagList = () => tags.value.split(",").map((t) => t.trim()).filter(Boolean);
+  const replace = new Map();
+  const act = async (fn) => {
+    try { await fn(); dlg.close(); loadReview(); } catch (e) { msg.textContent = e.message; }
+  };
+  dlg.append(el("span", { className: "badge", textContent: p.state }));
+  if (p.error) dlg.append(el("p", { className: "meta", textContent: "Error: " + p.error }));
+  dlg.append(el("h4", { textContent: "Original" }), el("pre", { textContent: p.raw_content }),
+    el("h4", { textContent: "Suggestion" }), title, content, tags);
+  const missing = (p.warnings && p.warnings.missing) || [];
+  if (missing.length) {
+    dlg.append(el("h4", { textContent: "Possibly missing from the suggestion" }));
+    const ul = el("ul");
+    for (const m of missing) ul.append(el("li", { textContent: m }));
+    dlg.append(ul);
+  }
+  if (p.related.length) {
+    dlg.append(el("h4", { textContent: "Related notes" }));
+    for (const r of p.related) {
+      const cb = el("input", { type: "checkbox" });
+      cb.addEventListener("change", () => (cb.checked ? replace.set(r.id, 1) : replace.delete(r.id)));
+      const sim = r.similarity === null ? "keyword" : r.similarity.toFixed(2);
+      dlg.append(el("label", {}, cb, document.createTextNode(" Replace this note: " + r.title + " (" + sim + ")")));
+    }
+  }
+  const approve = el("button", { textContent: "Approve" });
+  approve.addEventListener("click", () => act(() => api("/api/pending/" + id + "/approve", {
+    method: "POST", body: JSON.stringify({ title: title.value, content: content.value,
+      tags: tagList(), supersede: [...replace.keys()] }) })));
+  const reject = el("button", { className: "danger", textContent: "Reject" });
+  reject.addEventListener("click", () => act(() => api("/api/pending/" + id + "/reject", { method: "POST", body: "{}" })));
+  const regen = el("button", { className: "secondary", textContent: "Regenerate" });
+  regen.addEventListener("click", () => act(() => api("/api/pending/" + id + "/regenerate", { method: "POST", body: "{}" })));
+  const close = el("button", { className: "secondary", textContent: "Close" });
+  close.addEventListener("click", () => dlg.close());
+  dlg.append(approve, reject, regen, close, msg);
+  dlg.showModal();
+}
+
+(async () => {
+  try {
+    const h = await api("/health");
+    llmOn = !!h.llm.configured;
+  } catch (e) { llmOn = false; }
+  $("add-tidy-row").hidden = !llmOn;
+  $("tab-review-btn").hidden = !llmOn;
+  refreshReviewCount();
+})();

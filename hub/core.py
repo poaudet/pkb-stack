@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 class Hub:
     def __init__(self, settings: Settings, embedder: Embedder | None = None) -> None:
         self.settings = settings
+        self.queue = None  # pending.Queue, attached by create_app
         for sub in ("", "notes", "inbox", "backups"):
             os.makedirs(os.path.join(settings.data_dir, sub), exist_ok=True)
         conn = db.connect(settings.db_path)

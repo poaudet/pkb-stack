@@ -18,8 +18,6 @@
   connections are per request, so the store cannot own one.
 - Compose sets `PORT=5000` inside the container so a host `PORT` in `.env` only changes the
   published port (otherwise gunicorn binds the wrong port).
-- Phase 1 has no pending/LLM queue: `preprocess:true` returns 409 `llm_not_configured`; agent
-  notes (`X-Actor: agent:*`) are created directly with `source=agent:<name>` until phase 2.
 - `POST /api/admin/reindex` returns 501 (phase 4). `needs_reindex` detection and 409s exist.
 - `EMBED_BACKEND=openai` not implemented (phase 4); raises at startup.
 - Search accepts `kinds` but only notes exist until phase 3.
@@ -27,3 +25,14 @@
 - `hub.db.connect` uses `isolation_level=None` (autocommit); `tx()` issues BEGIN IMMEDIATE.
 - Versions pinned from the first green container build (python 3.11): see requirements.txt.
 - `schema.sql` includes entity/pending tables now (idempotent DDL, unused until later phases).
+
+## Phase 2 (AI tidy-up)
+- No new dependencies: `openai` (already in requirements) is used via
+  `client.chat.completions.create`; `BadRequestError` triggers the no-`response_format` retry.
+- `notes.create_note` gained `raw_content`, `supersede` and `in_tx` so approve creates the note,
+  supersedes the listed notes and marks the pending row approved in one transaction.
+- Agent notes with AGENT_NOTES_REQUIRE_REVIEW=true become `ready` pending rows (202); `failed`
+  and `ready` rows are approvable/editable/rejectable/regenerable.
+- Job pool lives on `hub.queue` (created in `create_app`, not on import); startup requeues
+  `processing` rows and purges rejected rows older than 30 days.
+- Verified against an in-test stub server only; not against a real endpoint in this sandbox.
