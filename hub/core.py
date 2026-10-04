@@ -5,7 +5,7 @@ import logging
 import os
 import sqlite3
 
-from . import db
+from . import db, entities
 from .config import Settings
 from .embeddings import Embedder
 from .vectorstore import NumpyStore, SqliteVecStore, select_store
@@ -22,6 +22,7 @@ class Hub:
         conn = db.connect(settings.db_path)
         try:
             db.migrate(conn)
+            entities.seed_types(conn)
             self.embedder = embedder or Embedder(
                 settings.embed_backend, settings.embed_model, settings.model_cache_dir
             )

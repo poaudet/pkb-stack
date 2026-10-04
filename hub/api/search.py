@@ -16,7 +16,7 @@ def _do(args: dict):
             hub, conn, args.get("q"), limit=args.get("limit", 10), kinds=args.get("kinds"),
             tags=args.get("tags"), include_superseded=args.get("include_superseded", False),
             min_similarity=args.get("min_similarity"), since=args.get("since"),
-            until=args.get("until")))
+            until=args.get("until"), types=args.get("types")))
     except (TypeError, ValueError) as e:
         raise validation(str(e)) from e
     finally:
@@ -37,5 +37,5 @@ def get_search():
     return _do({
         "q": a.get("q"), "limit": a.get("limit", 10),
         "include_superseded": a.get("include_superseded") == "true",
-        "kinds": a.getlist("kinds") or None, "tags": a.getlist("tags") or None,
+        "kinds": a.getlist("kinds") or None, "types": a.getlist("types") or None, "tags": a.getlist("tags") or None,
     })

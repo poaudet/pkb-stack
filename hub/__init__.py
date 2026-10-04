@@ -8,7 +8,7 @@ def create_app(settings=None, embedder=None):
     from flask import Flask, jsonify
     from werkzeug.exceptions import HTTPException
 
-    from .api import admin, notes, pending, search
+    from .api import admin, entities, notes, pending, search, tools
     from .auth import init_auth
     from .config import Settings
     from .core import Hub
@@ -25,7 +25,7 @@ def create_app(settings=None, embedder=None):
     hub.queue = Queue(hub)
     hub.queue.recover()
     init_auth(app, settings.api_token)
-    for m in (admin, notes, pending, search):
+    for m in (admin, entities, notes, pending, search, tools):
         app.register_blueprint(m.bp)
 
     @app.get("/")

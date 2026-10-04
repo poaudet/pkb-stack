@@ -32,6 +32,9 @@ def counts(conn) -> dict:
     out = {"notes": {"current": 0, "superseded": 0, "archived": 0}}
     for r in conn.execute("SELECT status, count(*) AS n FROM notes GROUP BY status"):
         out["notes"][r["status"]] = r["n"]
+    out["entities"] = {"current": 0, "superseded": 0, "archived": 0}
+    for r in conn.execute("SELECT status, count(*) AS n FROM entities GROUP BY status"):
+        out["entities"][r["status"]] = r["n"]
     out["chunks"] = conn.execute("SELECT count(*) FROM chunks").fetchone()[0]
     return out
 

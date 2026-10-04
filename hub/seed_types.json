@@ -1,0 +1,36 @@
+{"person":{"description":"A person the owner knows.","unique_key":"name",
+ "text_template":"{name} ({relationship}). Birthday: {birthday}. Habits: {habits}. Interests: {interests}. {notes}",
+ "json_schema":{"type":"object","required":["name"],"properties":{
+  "name":{"type":"string"},
+  "birthday":{"type":"string","format":"date"},
+  "relationship":{"type":"string"},
+  "contact":{"type":"object","properties":{
+    "email":{"type":"string"},"phone":{"type":"string"}}},
+  "habits":{"type":"array","items":{"type":"string"}},
+  "interests":{"type":"array","items":{"type":"string"}},
+  "notes":{"type":"string"}}}},
+"event":{"description":"Something that happened or will happen on a date.",
+ "text_template":"{date} {kind}: {title} at {location}. {notes}",
+ "json_schema":{"type":"object","required":["date","title"],"properties":{
+  "date":{"type":"string","format":"date"},
+  "title":{"type":"string"},"kind":{"type":"string"},
+  "location":{"type":"string"},
+  "people":{"type":"array","items":{"type":"string"},"x-ref":"person"},
+  "notes":{"type":"string"}}}},
+"message":{"description":"A message exchanged with a contact.",
+ "text_template":"{at} {direction} {contact}: {text}",
+ "json_schema":{"type":"object","required":["contact","at","text"],
+  "properties":{
+  "contact":{"type":"string"},
+  "contact_uid":{"type":"string","x-ref":"person"},
+  "at":{"type":"string","format":"date-time"},
+  "direction":{"type":"string","enum":["in","out"]},
+  "channel":{"type":"string"},"text":{"type":"string"}}}},
+"memory":{"description":"A memory worth keeping.",
+ "text_template":"{date} {title}. {description}",
+ "json_schema":{"type":"object","required":["title","description"],
+  "properties":{
+  "date":{"type":"string","format":"date"},
+  "title":{"type":"string"},"description":{"type":"string"},
+  "tags":{"type":"array","items":{"type":"string"}},
+  "people":{"type":"array","items":{"type":"string"},"x-ref":"person"}}}}}

@@ -46,19 +46,43 @@ def _run(hub: Hub, conn, q, qvec, k, p) -> list[dict]:
         return []
     ids = list(scores)
     marks = ",".join("?" * len(ids))
-    rows = conn.execute(
+    owners: list[dict] = []
+    for r in conn.execute(
         "SELECT c.id AS cid, c.text, n.* FROM chunks c JOIN notes n "
         f"ON c.owner_kind='note' AND c.owner_id=n.id WHERE c.id IN ({marks})", ids
-    ).fetchall()
+    ):
+        owners.append({
+            "key": ("note", r["id"]), "cid": r["cid"], "text": r["text"], "uid": r["uid"],
+            "kind": "note", "type": None, "title": r["title"], "status": r["status"],
+            "tags": json.loads(r["tags"]), "date": (r["happened_at"] or r["created_at"])[:10],
+            "updated_at": r["updated_at"]})
+    for r in conn.execute(
+        "SELECT c.id AS cid, c.text, c.title AS ctitle, e.* FROM chunks c JOIN entities e "
+        f"ON c.owner_kind='entity' AND c.owner_id=e.id WHERE c.id IN ({marks})", ids
+    ):
+        data = json.loads(r["data"])
+        etags = data.get("tags")
+        d = data.get("date")
+        owners.append({
+            "key": ("entity", r["id"]), "cid": r["cid"], "text": r["text"], "uid": r["uid"],
+            "kind": "entity", "type": r["type"], "title": r["ctitle"], "status": r["status"],
+            "tags": [t.lower() for t in etags if isinstance(t, str)]
+            if isinstance(etags, list) else [],
+            "date": (d if isinstance(d, str) and len(d) >= 10 else r["created_at"])[:10],
+            "updated_at": r["updated_at"]})
     kw_set = set(kw_ids)
-    best: dict[int, dict] = {}
-    for r in rows:
+    best: dict[tuple, dict] = {}
+    for r in owners:
         if r["status"] != "current" and not p["include_superseded"]:
             continue
-        tags = json.loads(r["tags"])
+        if p["kinds"] is not None and r["kind"] not in p["kinds"]:
+            continue
+        if p["types"] and (r["kind"] != "entity" or r["type"] not in p["types"]):
+            continue
+        tags = r["tags"]
         if p["tags"] and not all(t in tags for t in p["tags"]):
             continue
-        d = (r["happened_at"] or r["created_at"])[:10]
+        d = r["date"]
         if (p["since"] and d < p["since"][:10]) or (p["until"] and d > p["until"][:10]):
             continue
         cid = r["cid"]
@@ -67,26 +91,28 @@ def _run(hub: Hub, conn, q, qvec, k, p) -> list[dict]:
             sim is None or sim < p["min_similarity"]
         ):
             continue
-        hit = best.get(r["id"])
+        hit = best.get(r["key"])
         if hit is None or scores[cid] > hit["score"]:
             prev_sim = hit["similarity"] if hit else None
             prev_m = set(hit["matched"]) if hit else set()
             hit = {
-                "id": r["uid"], "kind": "note", "title": r["title"],
+                "id": r["uid"], "kind": r["kind"], "title": r["title"],
                 "snippet": _snippet(r["text"], q), "score": scores[cid],
                 "similarity": sim, "matched": prev_m, "status": r["status"],
                 "tags": tags, "updated_at": r["updated_at"],
             }
+            if r["type"]:
+                hit["type"] = r["type"]
             if prev_sim is not None and (sim is None or prev_sim > sim):
                 hit["similarity"] = prev_sim
-            best[r["id"]] = hit
+            best[r["key"]] = hit
         else:
             if sim is not None and (hit["similarity"] is None or sim > hit["similarity"]):
                 hit["similarity"] = sim
         if cid in vec_hits:
-            best[r["id"]]["matched"].add("vector")
+            best[r["key"]]["matched"].add("vector")
         if cid in kw_set:
-            best[r["id"]]["matched"].add("keyword")
+            best[r["key"]]["matched"].add("keyword")
     out = sorted(best.values(), key=lambda h: -h["score"])
     for h in out:
         h["matched"] = sorted(h["matched"], reverse=True)  # vector before keyword
@@ -95,7 +121,7 @@ def _run(hub: Hub, conn, q, qvec, k, p) -> list[dict]:
 
 def search(hub: Hub, conn: sqlite3.Connection, q: str, *, limit: int = 10, kinds=None,
            tags=None, include_superseded: bool = False, min_similarity=None,
-           since=None, until=None) -> dict:
+           since=None, until=None, types=None) -> dict:
     if not isinstance(q, str) or not q.strip():
         raise validation("q is required")
     if len(q) > 2000:
@@ -105,10 +131,11 @@ def search(hub: Hub, conn: sqlite3.Connection, q: str, *, limit: int = 10, kinds
         not isinstance(kinds, list) or any(k not in ("note", "entity") for k in kinds)
     ):
         raise validation("kinds must be a list of 'note'/'entity'")
-    if kinds is not None and "note" not in kinds:
-        return {"mode": "hybrid", "hits": []}
+    if types is not None and (not isinstance(types, list) or any(
+            not isinstance(t, str) for t in types)):
+        raise validation("types must be a list of strings")
     tags = [t.strip().lower() for t in (tags or []) if isinstance(t, str)]
-    p = {"tags": tags, "include_superseded": bool(include_superseded),
+    p = {"kinds": kinds, "types": types, "tags": tags, "include_superseded": bool(include_superseded),
          "min_similarity": min_similarity, "since": since, "until": until}
     mode = "keyword" if hub.needs_reindex else "hybrid"
     qvec = None if hub.needs_reindex else hub.embedder.embed_query(q)
