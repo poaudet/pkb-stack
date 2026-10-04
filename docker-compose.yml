@@ -32,6 +32,26 @@ services:
       retries: 5
       start_period: 15s
 
+  mcp:
+    profiles: ["mcp"]
+    build:
+      context: .
+      dockerfile: hub_mcp/Dockerfile
+    image: knowledge-hub-mcp:local
+    restart: unless-stopped
+    depends_on:
+      - hub
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HUB_URL: http://hub:5000
+      MCP_TRANSPORT: http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8000"
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${MCP_PORT:-8000}:8000"
+
   backup:
     profiles: ["backup"]
     image: rclone/rclone:latest

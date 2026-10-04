@@ -16,6 +16,9 @@ log = logging.getLogger(__name__)
 class Hub:
     def __init__(self, settings: Settings, embedder: Embedder | None = None) -> None:
         self.settings = settings
+        from .maintenance import ReindexJob
+
+        self.reindex_job = ReindexJob()
         self.queue = None  # pending.Queue, attached by create_app
         for sub in ("", "notes", "inbox", "backups"):
             os.makedirs(os.path.join(settings.data_dir, sub), exist_ok=True)
@@ -24,7 +27,8 @@ class Hub:
             db.migrate(conn)
             entities.seed_types(conn)
             self.embedder = embedder or Embedder(
-                settings.embed_backend, settings.embed_model, settings.model_cache_dir
+                settings.embed_backend, settings.embed_model, settings.model_cache_dir,
+                settings.embed_base_url, settings.embed_api_key,
             )
             self.store: SqliteVecStore | NumpyStore = select_store(conn, settings.vector_backend)
             stored = db.get_meta(conn, "embed_model")

@@ -61,7 +61,8 @@ def _register_e5() -> None:
 class Embedder:
     """embed_documents / embed_query return L2-normalized float32 arrays."""
 
-    def __init__(self, backend: str, model: str, cache_dir: str = "") -> None:
+    def __init__(self, backend: str, model: str, cache_dir: str = "", base_url: str = "",
+                 api_key: str = "") -> None:
         self.backend = backend
         self.model = model if backend != "fake" else "fake"
         self.cache_dir = cache_dir
@@ -74,8 +75,15 @@ class Embedder:
             self._load_local(model)
             self.profile = PROFILES.get(self.model, DEFAULT_PROFILE)
             self.dim = self.profile.dim
+        elif backend == "openai":
+            from openai import OpenAI
+
+            self._client = OpenAI(base_url=base_url or None, api_key=api_key or "not-needed",
+                                  timeout=120, max_retries=2)
+            self.dim = int(self._embed_openai(["dimension probe"]).shape[1])
+            self.profile = Profile(self.dim, "", "", 900)
         else:
-            raise ValueError(f"unsupported EMBED_BACKEND {backend!r} (phase 0/1: local|fake)")
+            raise ValueError(f"unsupported EMBED_BACKEND {backend!r} (local|openai|fake)")
 
     def _load_local(self, wanted: str) -> None:
         from fastembed import TextEmbedding
@@ -109,9 +117,18 @@ class Embedder:
                 out[i, 0] = 1.0
         return _normalize(out)
 
+    def _embed_openai(self, texts: list[str]) -> np.ndarray:
+        parts = []
+        for i in range(0, len(texts), 64):
+            resp = self._client.embeddings.create(model=self.model, input=texts[i : i + 64])
+            parts.append(np.array([d.embedding for d in resp.data], dtype=np.float32))
+        return _normalize(np.vstack(parts))
+
     def _embed(self, texts: list[str]) -> np.ndarray:
         if not texts:
             return np.zeros((0, self.dim), dtype=np.float32)
+        if self.backend == "openai":
+            return self._embed_openai(texts)
         if self.backend == "fake":
             return self._fake(texts)
         parts = []

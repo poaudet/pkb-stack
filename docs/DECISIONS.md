@@ -18,8 +18,8 @@
   connections are per request, so the store cannot own one.
 - Compose sets `PORT=5000` inside the container so a host `PORT` in `.env` only changes the
   published port (otherwise gunicorn binds the wrong port).
-- `POST /api/admin/reindex` returns 501 (phase 4). `needs_reindex` detection and 409s exist.
-- `EMBED_BACKEND=openai` not implemented (phase 4); raises at startup.
+- (Superseded in phase 4) reindex is implemented. `needs_reindex` detection and 409s exist.
+- (Superseded in phase 4) `EMBED_BACKEND=openai` is now implemented.
 - Search accepts `kinds`; entity hits arrive in phase 3.
 - Snippet is a 400-char window around the first query term in the best chunk.
 - `hub.db.connect` uses `isolation_level=None` (autocommit); `tx()` issues BEGIN IMMEDIATE.
@@ -52,3 +52,26 @@
 - Restoring an archived entity re-checks `unique_key` (409 if a current one now owns it).
 - UI shows entity details as read-only JSON (archive/restore/forget); edits go through the API/tools.
 - SKILL.md front matter (`name`, `description`) was not verified against agentskills.io: no network.
+
+## Phase 4 (extras)
+- New dependency, MCP bridge only: `mcp==2.3.0` in `hub_mcp/requirements.txt` (separate image,
+  not in the hub image). It uses the low-level `mcp.server.lowlevel.Server` (`on_list_tools`,
+  `on_call_tool`), `stdio_server`, and `Server.streamable_http_app()` served by uvicorn (an `mcp`
+  dependency). API verified against the installed package (`help()`), then run over both
+  transports. The bridge talks to the hub with `httpx` (also an `mcp`/`openai` dependency).
+  `tests/test_hub_mcp.py` imports `hub_mcp.bridge` (httpx only), so tests need no `mcp` install.
+- MCP HTTP is unauthenticated itself; the bridge holds API_TOKEN. Compose publishes it on
+  `BIND_ADDR` (default 127.0.0.1) only. Run: `docker compose --profile mcp up -d --build`.
+  stdio: `HUB_URL=... API_TOKEN=... python -m hub_mcp.server`.
+- `EMBED_BACKEND=openai` uses `client.embeddings.create` from the existing `openai` package with
+  EMBED_BASE_URL/EMBED_API_KEY/EMBED_MODEL; dimension is probed with one call at startup.
+  No query/doc prefixes; chunk size 900.
+- `POST /api/admin/reindex` starts a background thread (202); `GET /api/admin/reindex` reports
+  `{state: idle|running|done|error, done, total}`. It re-chunks/re-embeds everything, drops and
+  recreates the vector table with the current dimension, then clears `needs_reindex`. Reindex is
+  also how to re-embed after changing an entity type's `text_template`/`embed`.
+- `POST /api/admin/mirror/rebuild` deletes and regenerates `/data/notes`.
+- Import: dedup is by sha256 of the stripped body vs current notes; files that error stay in the
+  inbox. `preprocess:true` sends files to the pending queue (409 `llm_not_configured` otherwise).
+- Optional OpenAPI doc and rclone docs beyond the existing `backup` profile: not done.
+- Verification: see PR description (pytest, ruff, docker compose build).
