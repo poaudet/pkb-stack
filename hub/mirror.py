@@ -30,31 +30,50 @@ def remove(data_dir: str, uid: str) -> None:
         log.warning("mirror remove failed: %s", e)
 
 
+def render(note: dict) -> tuple[str, str]:
+    """Return (path relative to the notes dir, markdown text) for a note dict."""
+    date = (note.get("happened_at") or note["created_at"])[:10]
+    year = date[:4] if re.match(r"\d{4}", date) else "undated"
+    rel = Path("_history" if note["status"] != "current" else "") / year
+    rel = rel / f"{date}-{_slug(note['title'])}-{note['id'][:8]}.md"
+    fm = {
+        "id": note["id"],
+        "title": note["title"],
+        "tags": note["tags"],
+        "status": note["status"],
+        "created": note["created_at"],
+        "updated": note["updated_at"],
+        "happened_at": note.get("happened_at"),
+        "superseded_by": note.get("superseded_by"),
+    }
+    body = "---\n" + yaml.safe_dump(fm, allow_unicode=True, sort_keys=False) + "---\n\n"
+    return rel.as_posix(), body + note["content"] + "\n"
+
+
 def sync(data_dir: str, note: dict, enabled: bool = True) -> None:
     if not enabled:
         return
     try:
         root = Path(data_dir) / "notes"
         remove(data_dir, note["id"])
-        date = (note.get("happened_at") or note["created_at"])[:10]
-        year = date[:4] if re.match(r"\d{4}", date) else "undated"
-        base = root / ("_history" if note["status"] != "current" else "") / year
-        base.mkdir(parents=True, exist_ok=True)
-        path = base / f"{date}-{_slug(note['title'])}-{note['id'][:8]}.md"
-        fm = {
-            "id": note["id"],
-            "title": note["title"],
-            "tags": note["tags"],
-            "status": note["status"],
-            "created": note["created_at"],
-            "updated": note["updated_at"],
-            "happened_at": note.get("happened_at"),
-            "superseded_by": note.get("superseded_by"),
-        }
-        body = "---\n" + yaml.safe_dump(fm, allow_unicode=True, sort_keys=False) + "---\n\n"
-        body += note["content"] + "\n"
+        rel, text = render(note)
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".md.tmp")
-        tmp.write_text(body, encoding="utf-8")
+        tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, path)
     except Exception as e:  # noqa: BLE001
         log.warning("mirror write failed: %s", e)
+
+
+def clear(data_dir: str) -> None:
+    """Delete every mirrored markdown file (and now-empty directories)."""
+    root = Path(data_dir) / "notes"
+    for p in root.rglob("*.md*"):
+        if p.is_file():
+            p.unlink()
+    for d in sorted((p for p in root.rglob("*") if p.is_dir()), reverse=True):
+        try:
+            d.rmdir()
+        except OSError:
+            pass

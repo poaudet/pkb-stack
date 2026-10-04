@@ -30,6 +30,11 @@ class NumpyStore:
             "chunk_id INTEGER PRIMARY KEY, embedding BLOB NOT NULL)"
         )
 
+    def reset(self, conn: sqlite3.Connection, dim: int) -> None:
+        conn.execute("DROP TABLE IF EXISTS chunk_vectors")
+        self._invalidate()
+        self.ensure(conn, dim)
+
     def upsert(self, conn: sqlite3.Connection, chunk_id: int, vec: np.ndarray) -> None:
         conn.execute(
             "INSERT INTO chunk_vectors(chunk_id, embedding) VALUES(?,?) "
@@ -78,6 +83,10 @@ class SqliteVecStore:
         conn.execute(
             f"CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(embedding float[{self.dim}])"
         )
+
+    def reset(self, conn: sqlite3.Connection, dim: int) -> None:
+        conn.execute("DROP TABLE IF EXISTS vec_chunks")
+        self.ensure(conn, dim)
 
     def upsert(self, conn: sqlite3.Connection, chunk_id: int, vec: np.ndarray) -> None:
         import sqlite_vec

@@ -5,8 +5,9 @@ import os
 import re
 from datetime import UTC, datetime
 
-from flask import Blueprint, current_app, jsonify
+from flask import Blueprint, current_app, jsonify, request, send_file
 
+from .. import maintenance
 from ..errors import validation
 
 bp = Blueprint("admin", __name__)
@@ -88,6 +89,50 @@ def backup():
 
 @bp.post("/api/admin/reindex")
 def reindex():
-    from ..errors import ApiError
+    hub = current_app.extensions["hub"]
+    return jsonify({"job": hub.reindexer.start(request.headers.get("X-Actor") or "ui")}), 202
 
-    raise ApiError("not_implemented", "reindex arrives in phase 4", 501)
+
+@bp.get("/api/admin/reindex")
+def reindex_status():
+    hub = current_app.extensions["hub"]
+    return jsonify({"job": hub.reindexer.status(), "needs_reindex": hub.needs_reindex})
+
+
+@bp.post("/api/admin/mirror/rebuild")
+def mirror_rebuild():
+    hub = current_app.extensions["hub"]
+    conn = hub.conn()
+    try:
+        return jsonify(maintenance.rebuild_mirror(hub, conn))
+    finally:
+        conn.close()
+
+
+@bp.get("/api/admin/export")
+def export():
+    hub = current_app.extensions["hub"]
+    conn = hub.conn()
+    try:
+        f = maintenance.export_zip(hub, conn)
+    finally:
+        conn.close()
+    name = f"knowledge-export-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.zip"
+    return send_file(f, mimetype="application/zip", as_attachment=True, download_name=name)
+
+
+@bp.post("/api/import/scan")
+def import_scan():
+    hub = current_app.extensions["hub"]
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        raise validation("JSON object body required")
+    pre = data.get("preprocess", False)
+    if not isinstance(pre, bool):
+        raise validation("preprocess must be a boolean")
+    conn = hub.conn()
+    try:
+        return jsonify(maintenance.import_inbox(
+            hub, conn, pre, (request.headers.get("X-Actor") or "ui")[:80]))
+    finally:
+        conn.close()
