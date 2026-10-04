@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knowledge Hub</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav id="tabs">
+  <button data-tab="search" class="active">Search</button>
+  <button data-tab="add">Add</button>
+  <button data-tab="browse">Browse</button>
+  <button data-tab="status">Status</button>
+</nav>
+<main>
+  <section id="tab-search">
+    <input id="q" type="search" placeholder="Search your notes" autocomplete="off">
+    <label><input id="inc-sup" type="checkbox"> include superseded</label>
+    <div id="hits"></div>
+  </section>
+  <section id="tab-add" hidden>
+    <input id="add-title" type="text" placeholder="Title (optional)">
+    <textarea id="add-content" rows="10" placeholder="Write a note (markdown)"></textarea>
+    <input id="add-tags" type="text" placeholder="tags, comma separated">
+    <button id="add-save">Save</button>
+    <p id="add-msg"></p>
+  </section>
+  <section id="tab-browse" hidden>
+    <select id="b-status">
+      <option value="">all statuses</option>
+      <option value="current" selected>current</option>
+      <option value="superseded">superseded</option>
+      <option value="archived">archived</option>
+    </select>
+    <input id="b-tag" type="text" placeholder="filter by tag">
+    <div id="b-list"></div>
+  </section>
+  <section id="tab-status" hidden>
+    <pre id="health"></pre>
+    <button id="backup">Backup now</button>
+    <p id="backup-msg"></p>
+    <input id="token" type="password" placeholder="API token">
+    <button id="token-save">Save token</button>
+  </section>
+  <dialog id="detail"></dialog>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
