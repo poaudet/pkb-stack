@@ -43,6 +43,10 @@ class Settings:
     mirror_markdown: bool
     backup_keep: int
     log_level: str
+    llm_api_key: str = "not-needed"
+    llm_timeout: int = 300
+    llm_concurrency: int = 1
+    llm_max_input_chars: int = 12000
 
     @property
     def db_path(self) -> str:
@@ -67,4 +71,8 @@ class Settings:
             mirror_markdown=_bool("MIRROR_MARKDOWN", True),
             backup_keep=_int("BACKUP_KEEP", 14),
             log_level=_str("LOG_LEVEL", "INFO").upper(),
+            llm_api_key=_str("LLM_API_KEY", "not-needed"),
+            llm_timeout=_int("LLM_TIMEOUT", 300),
+            llm_concurrency=max(1, _int("LLM_CONCURRENCY", 1)),
+            llm_max_input_chars=_int("LLM_MAX_INPUT_CHARS", 12000),
         )

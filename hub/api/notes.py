@@ -3,6 +3,7 @@ from __future__ import annotations
 from flask import Blueprint, current_app, jsonify, request
 
 from .. import notes as svc
+from .. import pending
 from ..errors import validation
 
 bp = Blueprint("notes", __name__)
@@ -35,13 +36,15 @@ def _page() -> tuple[int, int]:
 @bp.post("/api/notes")
 def create():
     data = _body()
-    if data.get("preprocess"):
-        from ..errors import ApiError
-
-        raise ApiError("llm_not_configured", "AI tidy-up is not available", 409)
     hub = _hub()
     conn = hub.conn()
     try:
+        agent = _actor().startswith("agent:")
+        if data.get("preprocess"):
+            pending.require_llm(hub)
+            return jsonify({"pending": pending.create(hub, conn, data, _actor(), queue=True)}), 202
+        if agent and hub.settings.agent_notes_require_review:
+            return jsonify({"pending": pending.create(hub, conn, data, _actor(), queue=False)}), 202
         return jsonify({"note": svc.create_note(hub, conn, data, _actor())}), 201
     finally:
         conn.close()

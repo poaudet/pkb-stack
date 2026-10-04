@@ -154,7 +154,8 @@ def _mirror(hub: Hub, conn: sqlite3.Connection, uid: str) -> None:
     mirror.sync(hub.settings.data_dir, to_dict(conn, _row(conn, uid)), hub.settings.mirror_markdown)
 
 
-def create_note(hub: Hub, conn, data: dict, actor: str = "ui") -> dict:
+def create_note(hub: Hub, conn, data: dict, actor: str = "ui", *, raw_content: str | None = None,
+                supersede: list[str] | None = None, in_tx=None) -> dict:
     _require_embeddings(hub)
     content = _check_content(data.get("content"))
     title = _check_title(data.get("title"), content)
@@ -167,12 +168,27 @@ def create_note(hub: Hub, conn, data: dict, actor: str = "ui") -> dict:
         ).fetchone()
         if dup:
             raise ApiError("duplicate", "an identical current note exists", 409, existing=dup["uid"])
+    olds = [_row(conn, u) for u in (supersede or [])]
+    if any(o["status"] != "current" for o in olds):
+        raise ApiError("conflict", "only current notes can be superseded", 409)
     chunks, vecs = _prepare(hub, title, content)
     source = actor if actor.startswith("agent:") else str(data.get("source") or "ui")
     with tx(conn):
-        _, uid = _insert(hub, conn, title=title, content=content, tags=tags, happened_at=happened,
-                         source=source, chunks=chunks, vecs=vecs)
+        nid, uid = _insert(hub, conn, title=title, content=content, tags=tags,
+                           happened_at=happened, source=source, raw=raw_content,
+                           chunks=chunks, vecs=vecs)
+        for o in olds:
+            conn.execute(
+                "UPDATE notes SET status='superseded', superseded_by=?, status_reason=?, "
+                "updated_at=? WHERE id=?",
+                (nid, "replaced via review", _now(), o["id"]),
+            )
+            _audit(conn, actor, "supersede", o["uid"], uid)
         _audit(conn, actor, "create", uid)
+        if in_tx is not None:
+            in_tx(conn)
+    for o in olds:
+        _mirror(hub, conn, o["uid"])
     _mirror(hub, conn, uid)
     return to_dict(conn, _row(conn, uid))
 

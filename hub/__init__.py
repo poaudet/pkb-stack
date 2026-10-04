@@ -8,7 +8,7 @@ def create_app(settings=None, embedder=None):
     from flask import Flask, jsonify
     from werkzeug.exceptions import HTTPException
 
-    from .api import admin, notes, search
+    from .api import admin, notes, pending, search
     from .auth import init_auth
     from .config import Settings
     from .core import Hub
@@ -18,9 +18,14 @@ def create_app(settings=None, embedder=None):
     logging.basicConfig(level=getattr(logging, settings.log_level, logging.INFO))
     app = Flask(__name__, static_folder="static", static_url_path="/static")
     app.config["MAX_CONTENT_LENGTH"] = settings.max_body_mb * 1024 * 1024
-    app.extensions["hub"] = Hub(settings, embedder)
+    hub = Hub(settings, embedder)
+    app.extensions["hub"] = hub
+    from .pending import Queue
+
+    hub.queue = Queue(hub)
+    hub.queue.recover()
     init_auth(app, settings.api_token)
-    for m in (admin, notes, search):
+    for m in (admin, notes, pending, search):
         app.register_blueprint(m.bp)
 
     @app.get("/")
