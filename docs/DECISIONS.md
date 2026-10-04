@@ -18,8 +18,7 @@
   connections are per request, so the store cannot own one.
 - Compose sets `PORT=5000` inside the container so a host `PORT` in `.env` only changes the
   published port (otherwise gunicorn binds the wrong port).
-- `POST /api/admin/reindex` returns 501 (phase 4). `needs_reindex` detection and 409s exist.
-- `EMBED_BACKEND=openai` not implemented (phase 4); raises at startup.
+- `needs_reindex` detection and 409s exist (reindex itself: phase 4).
 - Search accepts `kinds`; entity hits arrive in phase 3.
 - Snippet is a 400-char window around the first query term in the best chunk.
 - `hub.db.connect` uses `isolation_level=None` (autocommit); `tx()` issues BEGIN IMMEDIATE.
@@ -52,3 +51,20 @@
 - Restoring an archived entity re-checks `unique_key` (409 if a current one now owns it).
 - UI shows entity details as read-only JSON (archive/restore/forget); edits go through the API/tools.
 - SKILL.md front matter (`name`, `description`) was not verified against agentskills.io: no network.
+
+## Phase 4 (extras)
+- New dependency `mcp==2.3.0` (official MCP Python SDK), in `requirements-mcp.txt` only and
+  installed by `Dockerfile.mcp`; the hub image does not include it. `httpx`/`uvicorn` come with
+  it. mcp 2.x renamed FastMCP to MCPServer; the bridge uses the low-level `Server`
+  (`on_list_tools`/`on_call_tool`) so each tool's JSON schema from `/api/tools` is passed through.
+  Calls are forwarded with `X-Actor: agent:mcp` (`MCP_ACTOR`). Transport via `MCP_TRANSPORT`.
+- `EMBED_BACKEND=openai` uses the existing `openai` package (`client.embeddings.create`); the
+  dimension is probed at startup with one request. Compose `mcp` profile publishes port 8000.
+- Reindex: `POST /api/admin/reindex` (202) starts one in-process thread; `GET` returns progress.
+  If the model changed it drops/recreates the vector table at the new dimension, then rewrites
+  chunks per note/entity (embedding outside the write transaction). Writes stay 409 until done.
+- Inbox import moves only created/queued files to `inbox/_processed/<ts>/`; duplicates stay put.
+- Export zip is rendered from the DB (works even with MIRROR_MARKDOWN=false).
+- Optional OpenAPI doc not implemented.
+- rclone backup profile already existed; see README.
+- Verification: see PR description (pytest, ruff, docker build).

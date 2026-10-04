@@ -24,6 +24,9 @@ def create_app(settings=None, embedder=None):
 
     hub.queue = Queue(hub)
     hub.queue.recover()
+    from .reindex import Reindexer
+
+    hub.reindexer = Reindexer(hub)
     init_auth(app, settings.api_token)
     for m in (admin, entities, notes, pending, search, tools):
         app.register_blueprint(m.bp)

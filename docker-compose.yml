@@ -19,6 +19,22 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  mcp:
+    profiles: ["mcp"]
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    image: knowledge-hub-mcp:local
+    restart: unless-stopped
+    depends_on:
+      - hub
+    environment:
+      HUB_URL: http://hub:5000
+      API_TOKEN: ${API_TOKEN:-}
+      MCP_TRANSPORT: streamable-http
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${MCP_PORT:-8000}:8000"
+
   ollama:
     profiles: ["local-llm"]
     image: ollama/ollama:latest
