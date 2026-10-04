@@ -47,6 +47,7 @@ class Settings:
     llm_timeout: int = 300
     llm_concurrency: int = 1
     llm_max_input_chars: int = 12000
+    tools_allow_destructive: bool = False
 
     @property
     def db_path(self) -> str:
@@ -75,4 +76,5 @@ class Settings:
             llm_timeout=_int("LLM_TIMEOUT", 300),
             llm_concurrency=max(1, _int("LLM_CONCURRENCY", 1)),
             llm_max_input_chars=_int("LLM_MAX_INPUT_CHARS", 12000),
+            tools_allow_destructive=_bool("TOOLS_ALLOW_DESTRUCTIVE", False),
         )

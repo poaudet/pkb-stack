@@ -35,6 +35,7 @@ function showTab(name) {
   }
   if (name === "browse") loadBrowse();
   if (name === "review") loadReview();
+  if (name === "entities") loadEntities();
   if (name === "status") loadStatus();
 }
 
@@ -49,7 +50,7 @@ function card(n, snippet) {
   }
   c.append(meta);
   if (snippet) c.append(el("div", { className: "snip", textContent: snippet }));
-  c.addEventListener("click", () => openDetail(n.id));
+  c.addEventListener("click", () => (n.kind === "entity" ? openEntity(n.id) : openDetail(n.id)));
   return c;
 }
 
@@ -249,6 +250,151 @@ async function openPending(id) {
   dlg.append(approve, reject, regen, close, msg);
   dlg.showModal();
 }
+
+function summarize(data) {
+  return Object.entries(data).map(([k, v]) => k + ": " + (typeof v === "object" ? JSON.stringify(v) : v)).join("; ");
+}
+
+async function openEntity(id) {
+  const dlg = $("entity-dialog");
+  const { entity } = await api("/api/entities/" + encodeURIComponent(id));
+  dlg.replaceChildren();
+  const msg = el("p", { className: "meta" });
+  const act = async (fn) => {
+    try { await fn(); dlg.close(); loadEntities(); doSearch(); } catch (e) { msg.textContent = e.message; }
+  };
+  const arch = el("button", { className: "secondary",
+    textContent: entity.status === "archived" ? "Restore" : "Archive" });
+  arch.addEventListener("click", () => act(() => api("/api/entities/" + id + "/" +
+    (entity.status === "archived" ? "restore" : "archive"), { method: "POST", body: "{}" })));
+  const del = el("button", { className: "danger", textContent: "Forget" });
+  del.addEventListener("click", () => {
+    if (window.confirm("Permanently delete this record and all traces?")) {
+      act(() => api("/api/entities/" + id + "?confirm=true", { method: "DELETE" }));
+    }
+  });
+  const close = el("button", { className: "secondary", textContent: "Close" });
+  close.addEventListener("click", () => dlg.close());
+  dlg.append(el("span", { className: "badge", textContent: entity.type + " · " + entity.status }),
+    el("pre", { textContent: JSON.stringify(entity.data, null, 2) }), arch, del, close, msg);
+  dlg.showModal();
+}
+
+let entityTypes = [];
+
+async function loadEntities() {
+  const sel = $("e-type");
+  try {
+    entityTypes = (await api("/api/entity-types")).types;
+    const cur = sel.value;
+    sel.replaceChildren(...entityTypes.map((t) => el("option", { value: t.name, textContent: t.name + " (" + t.count + ")" })));
+    if (cur) sel.value = cur;
+    await loadEntityRows();
+    const act = $("e-activity");
+    act.replaceChildren();
+    const res = await api("/api/activity?limit=20");
+    for (const a of res.items) {
+      act.append(el("div", { className: "meta", textContent: a.at + " " + a.actor + " " + a.action + " " + a.target_kind }));
+    }
+  } catch (e) {
+    $("e-table").textContent = e.message;
+  }
+}
+
+async function loadEntityRows() {
+  const box = $("e-table");
+  box.replaceChildren();
+  if (!sel_type()) return;
+  const res = await api("/api/entities?limit=100&type=" + encodeURIComponent(sel_type()));
+  for (const e of res.items) {
+    const c = el("div", { className: "card" + (e.status !== "current" ? " old" : "") });
+    c.append(el("div", { className: "snip", textContent: summarize(e.data) }));
+    c.append(el("div", { className: "meta", textContent: e.status + " · " + e.source }));
+    c.addEventListener("click", () => openEntity(e.id));
+    box.append(c);
+  }
+  if (!res.items.length) box.append(el("p", { textContent: "No records." }));
+}
+
+function sel_type() { return $("e-type").value; }
+
+function fieldInput(name, prop) {
+  const t = prop.type;
+  if (t === "boolean") return { input: el("input", { type: "checkbox" }), get: (i) => i.checked };
+  if (t === "number" || t === "integer") {
+    return { input: el("input", { type: "number", step: t === "integer" ? "1" : "any" }),
+      get: (i) => (i.value === "" ? undefined : Number(i.value)) };
+  }
+  if (t === "array" && prop.items && ["string", "number", "integer", "boolean"].includes(prop.items.type)) {
+    return { input: el("input", { type: "text", placeholder: "comma separated" }),
+      get: (i) => {
+        const v = i.value.split(",").map((x) => x.trim()).filter(Boolean);
+        if (!v.length) return undefined;
+        return prop.items.type === "string" ? v : v.map((x) => (prop.items.type === "boolean" ? x === "true" : Number(x)));
+      } };
+  }
+  if (t === "string") {
+    const fmt = prop.format === "date" ? "date" : prop.format === "date-time" ? "datetime-local" : "text";
+    return { input: el("input", { type: fmt }), get: (i) => i.value || undefined };
+  }
+  return { input: el("textarea", { rows: 3, placeholder: "JSON" }),
+    get: (i) => (i.value.trim() ? JSON.parse(i.value) : undefined) };
+}
+
+function openNewEntity() {
+  const type = entityTypes.find((t) => t.name === sel_type());
+  if (!type) return;
+  const dlg = $("entity-dialog");
+  dlg.replaceChildren(el("h4", { textContent: "New " + type.name }));
+  const fields = [];
+  for (const [name, prop] of Object.entries(type.json_schema.properties)) {
+    const f = fieldInput(name, prop);
+    fields.push([name, f]);
+    dlg.append(el("label", { textContent: name + ((type.json_schema.required || []).includes(name) ? " *" : "") }), f.input);
+  }
+  const msg = el("p", { className: "meta" });
+  const save = el("button", { textContent: "Create" });
+  save.addEventListener("click", async () => {
+    try {
+      const data = {};
+      for (const [name, f] of fields) {
+        const v = f.get(f.input);
+        if (v !== undefined) data[name] = v;
+      }
+      await api("/api/entities", { method: "POST", body: JSON.stringify({ type: type.name, data }) });
+      dlg.close();
+      loadEntities();
+    } catch (e) { msg.textContent = e.message; }
+  });
+  const close = el("button", { className: "secondary", textContent: "Cancel" });
+  close.addEventListener("click", () => dlg.close());
+  dlg.append(save, close, msg);
+  dlg.showModal();
+}
+
+function openNewType() {
+  const dlg = $("entity-dialog");
+  const area = el("textarea", { rows: 14, value: JSON.stringify({ name: "", description: "",
+    json_schema: { type: "object", required: [], properties: { title: { type: "string" } } },
+    text_template: "{title}", unique_key: null }, null, 2) });
+  const msg = el("p", { className: "meta" });
+  const save = el("button", { textContent: "Create type" });
+  save.addEventListener("click", async () => {
+    try {
+      await api("/api/entity-types", { method: "POST", body: area.value });
+      dlg.close();
+      loadEntities();
+    } catch (e) { msg.textContent = e.message; }
+  });
+  const close = el("button", { className: "secondary", textContent: "Cancel" });
+  close.addEventListener("click", () => dlg.close());
+  dlg.replaceChildren(el("h4", { textContent: "New entity type" }), area, save, close, msg);
+  dlg.showModal();
+}
+
+$("e-type").addEventListener("change", () => loadEntityRows().catch((e) => { $("e-table").textContent = e.message; }));
+$("e-new").addEventListener("click", openNewEntity);
+$("e-newtype").addEventListener("click", openNewType);
 
 (async () => {
   try {

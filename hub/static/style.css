@@ -6,7 +6,8 @@ nav { display:flex; position:sticky; top:0; background:var(--card); }
 nav button { flex:1; padding:14px 4px; border:0; background:none; color:var(--fg); font-size:1rem; }
 nav button.active { border-bottom:3px solid var(--acc); font-weight:600; }
 main { max-width:800px; margin:0 auto; padding:12px; }
-input[type=text], input[type=search], input[type=password], textarea, select {
+input[type=text], input[type=search], input[type=password], input[type=number], input[type=date],
+input[type=datetime-local], textarea, select {
   width:100%; padding:12px; margin:6px 0; font-size:1rem; background:var(--card); color:var(--fg);
   border:1px solid var(--mut); border-radius:8px; }
 button { padding:12px 16px; font-size:1rem; border-radius:8px; border:1px solid var(--acc);
@@ -21,3 +22,4 @@ button.danger { background:#b3261e; border-color:#b3261e; }
 dialog { width:min(95vw,760px); background:var(--bg); color:var(--fg); border:1px solid var(--mut); border-radius:10px; }
 pre { white-space:pre-wrap; word-break:break-word; }
 [hidden] { display: none !important; }
+dialog label { display:block; margin-top:8px; }

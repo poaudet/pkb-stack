@@ -12,6 +12,7 @@
   <button data-tab="add">Add</button>
   <button data-tab="review" id="tab-review-btn" hidden>Review <span id="review-count"></span></button>
   <button data-tab="browse">Browse</button>
+  <button data-tab="entities">Entities</button>
   <button data-tab="status">Status</button>
 </nav>
 <main>
@@ -41,6 +42,14 @@
     <input id="b-tag" type="text" placeholder="filter by tag">
     <div id="b-list"></div>
   </section>
+  <section id="tab-entities" hidden>
+    <select id="e-type"></select>
+    <button id="e-new">New</button>
+    <button id="e-newtype" class="secondary">New type</button>
+    <div id="e-table"></div>
+    <h4>Recent activity</h4>
+    <div id="e-activity"></div>
+  </section>
   <section id="tab-status" hidden>
     <p id="llm-badge"></p>
     <pre id="health"></pre>
@@ -51,6 +60,7 @@
   </section>
   <dialog id="detail"></dialog>
   <dialog id="review-detail"></dialog>
+  <dialog id="entity-dialog"></dialog>
 </main>
 <script src="/static/app.js"></script>
 </body>

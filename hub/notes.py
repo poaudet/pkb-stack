@@ -116,17 +116,18 @@ def _prepare(hub: Hub, title: str, content: str):
     return chunks, vecs
 
 
-def _write_chunks(hub: Hub, conn: sqlite3.Connection, note_id: int, title: str, chunks, vecs):
+def _write_chunks(hub: Hub, conn: sqlite3.Connection, note_id: int, title: str, chunks, vecs,
+                  kind: str = "note"):
     for r in conn.execute(
-        "SELECT id FROM chunks WHERE owner_kind='note' AND owner_id=?", (note_id,)
+        "SELECT id FROM chunks WHERE owner_kind=? AND owner_id=?", (kind, note_id)
     ).fetchall():
         hub.store.delete(conn, [r["id"]])
-    conn.execute("DELETE FROM chunks WHERE owner_kind='note' AND owner_id=?", (note_id,))
+    conn.execute("DELETE FROM chunks WHERE owner_kind=? AND owner_id=?", (kind, note_id))
     for i, (text, vec) in enumerate(zip(chunks, vecs, strict=True)):
         cid = conn.execute(
             "INSERT INTO chunks(owner_kind, owner_id, idx, title, text) "
-            "VALUES('note',?,?,?,?) RETURNING id",
-            (note_id, i, title, text),
+            "VALUES(?,?,?,?,?) RETURNING id",
+            (kind, note_id, i, title, text),
         ).fetchone()["id"]
         hub.store.upsert(conn, cid, vec)
 

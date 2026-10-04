@@ -20,7 +20,7 @@
   published port (otherwise gunicorn binds the wrong port).
 - `POST /api/admin/reindex` returns 501 (phase 4). `needs_reindex` detection and 409s exist.
 - `EMBED_BACKEND=openai` not implemented (phase 4); raises at startup.
-- Search accepts `kinds` but only notes exist until phase 3.
+- Search accepts `kinds`; entity hits arrive in phase 3.
 - Snippet is a 400-char window around the first query term in the best chunk.
 - `hub.db.connect` uses `isolation_level=None` (autocommit); `tx()` issues BEGIN IMMEDIATE.
 - Versions pinned from the first green container build (python 3.11): see requirements.txt.
@@ -36,3 +36,19 @@
 - Job pool lives on `hub.queue` (created in `create_app`, not on import); startup requeues
   `processing` rows and purges rejected rows older than 30 days.
 - Verified against an in-test stub server only; not against a real endpoint in this sandbox.
+
+## Phase 3 (entities + agent tools)
+- No new dependencies: `jsonschema` (already pinned) validates types and data. `date`/`date-time`
+  formats are checked by a custom `format` keyword (`validators.extend`), not format packages.
+- Type PATCH "additive" = all existing properties kept unchanged, no new `required` entries.
+  Changing `text_template`/`embed`/schema does not re-embed existing entities (reindex is phase 4).
+- Entity types whose `embed` is 0 get no chunk, so they are not searchable, only queryable.
+- Search `types` filter returns entity hits of those types only; `kinds` filters note/entity.
+  Entity hit date for since/until = `data.date` if present, else `created_at`; tags = `data.tags`.
+- `POST /api/tools/{name}` defaults the actor to `agent:api` when `X-Actor` is absent so agent
+  notes always follow AGENT_NOTES_REQUIRE_REVIEW. Destructive tools answer 404 unless
+  TOOLS_ALLOW_DESTRUCTIVE=true.
+- Entity audit `detail` holds only the type name / new uid / forget reason, never data.
+- Restoring an archived entity re-checks `unique_key` (409 if a current one now owns it).
+- UI shows entity details as read-only JSON (archive/restore/forget); edits go through the API/tools.
+- SKILL.md front matter (`name`, `description`) was not verified against agentskills.io: no network.
