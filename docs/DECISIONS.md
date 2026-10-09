@@ -143,5 +143,11 @@
   normalization and apply checks) remain authoritative.
 - This change stops at E1: plan operations are displayed read-only; selection, field editing,
   applying, undo UI, owner UI, and schema UI remain later sub-phases.
-- Sandbox baseline Compose build/start failed at the existing model download because Hugging Face
-  DNS resolution is unavailable. Repeat build and smoke results after changes are recorded below.
+- Verification after E1: `pytest -q` passed (75 passed, 1 skipped; 8 E2E tests excluded);
+  `pytest -q -m e2e` passed (8 passed); `ruff check .`, `git diff --check`, and post-change curl
+  checks passed.
+- Docker CLI was present. Both `docker compose build` and `scripts/smoke.sh` were attempted after
+  changes and failed at the existing `python -m hub.embeddings --download` step because the
+  sandbox could not resolve the Hugging Face host. Compose could not start, so the Compose smoke
+  API sequence was not run. The local Playwright E0/E1 suite did run successfully against the
+  fake-embedding Flask app and canned LLM.
