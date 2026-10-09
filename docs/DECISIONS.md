@@ -94,3 +94,20 @@
   smoke test with `EMBED_BACKEND=fake` started the app and returned `/health` status `ok`; this
   does not verify the production image's baked model.
 - Scope stops after C2: no Capture page (C3) or `capture_text`/tool profile integration (C4).
+
+## Self/gap/schema precondition audit (D0-D2)
+- Capture tables and modules are present; atomic apply and conditional undo are exercised by
+  `tests/test_capture.py`. Existing reference resolution is limited to plan aliases/candidates;
+  an unresolved `$ref` fails during apply as a generic `capture_apply` conflict, with no
+  dependency-closure error. This is a gap addressed by D1.
+- Entity chunk text is rendered by `entities.render_text`; entity data is checked by
+  `entities.validate_data`.
+- `PATCH /api/entity-types/{name}` currently uses `_is_additive`: existing properties must remain
+  identical and new required fields are rejected, but removing an existing `required` entry is
+  allowed. D2's extension API will be stricter and separate; existing PATCH behavior is unchanged.
+- `fold()` is registered by `db.connect` on every SQLite connection.
+- `capture_ops.kind` has no CHECK constraint, so `extend_entity_type` needs no table rebuild.
+- D0-D2 were not present: no owner pointer/guards or owner API, no DB-backed reference matching,
+  missing-reference gaps or operation dependencies, and no schema-version/history/extension flow.
+- `pytest` was unavailable in the initial sandbox PATH; validation dependencies are listed in
+  `requirements-dev.txt`. Docker Compose v2 is available. Results after implementation are below.

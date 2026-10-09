@@ -62,6 +62,13 @@ class Settings:
     capture_daily_call_limit: int = 60
     capture_keep_raw_days: int = 30
     hub_timezone: str = "UTC"
+    owner_name: str = ""
+    capture_allow_schema_changes: bool = True
+    capture_max_new_fields: int = 5
+    capture_gap_fill: bool = True
+    capture_gap_max: int = 8
+    capture_gap_default_include: bool = True
+    capture_catalog_max_chars: int = 5000
 
     @property
     def db_path(self) -> str:
@@ -105,4 +112,11 @@ class Settings:
             capture_daily_call_limit=_int("CAPTURE_DAILY_CALL_LIMIT", 60),
             capture_keep_raw_days=_int("CAPTURE_KEEP_RAW_DAYS", 30),
             hub_timezone=_str("HUB_TIMEZONE", "UTC"),
+            owner_name=_str("OWNER_NAME"),
+            capture_allow_schema_changes=_bool("CAPTURE_ALLOW_SCHEMA_CHANGES", True),
+            capture_max_new_fields=_int("CAPTURE_MAX_NEW_FIELDS", 5),
+            capture_gap_fill=_bool("CAPTURE_GAP_FILL", True),
+            capture_gap_max=_int("CAPTURE_GAP_MAX", 8),
+            capture_gap_default_include=_bool("CAPTURE_GAP_DEFAULT_INCLUDE", True),
+            capture_catalog_max_chars=_int("CAPTURE_CATALOG_MAX_CHARS", 5000),
         )

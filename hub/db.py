@@ -108,7 +108,34 @@ def _m3(conn: sqlite3.Connection) -> None:
     )
 
 
-MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_m1, _m2, _m3]
+def _m4(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(entity_types)")}
+    if "schema_version" not in columns:
+        conn.execute(
+            "ALTER TABLE entity_types ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1"
+        )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS entity_type_history(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          type TEXT NOT NULL REFERENCES entity_types(name) ON DELETE CASCADE,
+          version INTEGER NOT NULL,
+          json_schema TEXT NOT NULL CHECK (json_valid(json_schema)),
+          change TEXT NOT NULL CHECK (json_valid(change)),
+          actor TEXT NOT NULL,
+          capture_uid TEXT,
+          at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+          UNIQUE(type, version)
+        )
+        """
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO entity_type_history(type,version,json_schema,change,actor) "
+        "SELECT name,1,json_schema,'{}','migration' FROM entity_types"
+    )
+
+
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_m1, _m2, _m3, _m4]
 
 
 def migrate(conn: sqlite3.Connection) -> None:
