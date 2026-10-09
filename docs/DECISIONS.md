@@ -111,3 +111,23 @@
   missing-reference gaps or operation dependencies, and no schema-version/history/extension flow.
 - `pytest` was unavailable in the initial sandbox PATH; validation dependencies are listed in
   `requirements-dev.txt`. Docker Compose v2 is available. Results after implementation are below.
+
+## D0-D2 (owner, gap filling, schema evolution)
+- Owner identity is a CURRENT `person` with folded `relationship='self'`; `meta.self_uid` is repaired
+  to the oldest match on startup/read. Conflicts are returned by `GET /api/self`. Only explicit
+  API `force=true` bypasses owner protections; tools and capture do not pass force.
+- Capture now resolves x-ref labels against all CURRENT records, proposes checked/undoable gap
+  creates, and records direct operation dependencies. Apply returns 409 `dependency` rather than
+  attempting an unresolved reference. Similar types remain unchecked; singular/plural-equivalent
+  type proposals are dropped and records resolve to the existing type.
+- Schema changes use migration 4, `entity_types.schema_version`, `entity_type_history`, the
+  additive `POST /api/entity-types/{name}/extend` API, and capture operation undo. No dependency
+  was added. Existing entity type PATCH behavior remains unchanged.
+- UI and agent integration (D3) were not implemented; this task stops after D2.
+- Verification: `pytest -q` (71 passed, 1 skipped), `ruff check .`, `git diff --check`, and
+  `docker compose config --quiet` passed. `docker compose build` failed at
+  `python -m hub.embeddings --download` because the sandbox could not resolve the Hugging Face
+  host. Therefore the Compose image could not be started. A separate Python 3.11-slim Docker
+  container with the repository mounted, `EMBED_BACKEND=fake`, and `VECTOR_BACKEND=numpy` returned
+  `/health` status `ok`; this validates runtime startup only, not the production baked model or
+  Compose image.
