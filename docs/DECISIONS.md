@@ -151,3 +151,19 @@
   sandbox could not resolve the Hugging Face host. Compose could not start, so the Compose smoke
   API sequence was not run. The local Playwright E0/E1 suite did run successfully against the
   fake-embedding Flask app and canned LLM.
+
+## UI capture E2-E3
+- E2 adds schema-driven operation editing, dependency-aware selection, live `/validate` feedback,
+  confirmation dialogs, apply results/links, undo reports, and answer-based regeneration. E3 adds
+  owner setup and first-person gap flow, schema version/details/history/field extension, protected
+  owner confirmation, Add-tab and Status integrations, and responsive action-bar/accessibility work.
+- No dependency was added. The existing Playwright/Chromium harness and canned fixture server cover
+  owner setup, H3 field dependencies/apply/undo, protected-owner confirmation, Add/Status integration,
+  XSS text rendering, and the phone-width action bar.
+- Verification: `pytest -q` passed (75 passed, 1 skipped; E2E deselected); `pytest -q -m e2e`
+  passed (13 passed); `ruff check .`, `git diff --check`, and JavaScript module syntax checks passed.
+- Docker CLI and Compose v2 are available, but `docker compose build` and `scripts/smoke.sh` both
+  fail at the existing `python -m hub.embeddings --download` step because Hugging Face DNS is
+  unavailable in the sandbox. The Compose app did not start, so its API smoke sequence is unverified.
+- The physical-phone LAN check remains a manual verification for the operator; it cannot be
+  performed from this sandbox.

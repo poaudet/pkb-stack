@@ -64,8 +64,11 @@
     <div id="hits"></div>
   </section>
   <section id="tab-add" hidden>
+    <label for="add-title">Title (optional)</label>
     <input id="add-title" type="text" placeholder="Title (optional)">
+    <label for="add-content">Note text</label>
     <textarea id="add-content" rows="10" placeholder="Write a note (markdown)"></textarea>
+    <label for="add-tags">Tags, comma separated</label>
     <input id="add-tags" type="text" placeholder="tags, comma separated">
     <label id="add-tidy-row" hidden><input id="add-tidy" type="checkbox" checked> Let AI tidy this first</label>
     <button id="add-save">Save</button>
@@ -86,6 +89,7 @@
     <div id="b-list"></div>
   </section>
   <section id="tab-entities" hidden>
+    <label for="e-type">Entity type</label>
     <select id="e-type"></select>
     <button id="e-new">New</button>
     <button id="e-newtype" class="secondary">New type</button>

@@ -19,8 +19,8 @@ export function typeByName(name) {
   return types.find((type) => type.name === name);
 }
 
-export async function refreshTypes() {
-  const result = await captureApi.entityTypes();
+export async function refreshTypes(options) {
+  const result = await captureApi.entityTypes(options);
   types = result.types || [];
   return types;
 }
@@ -33,19 +33,23 @@ function typeSummary(type) {
   const required = new Set(type.json_schema.required || []);
   const rows = document.createElement("ul");
   for (const [name, field] of Object.entries(type.json_schema.properties || {})) {
-    const origin = field["x-origin"];
-    const line = el("li", {
-      textContent: `${name} — ${field.type}${required.has(name) ? " !" : ""}`
-        + `${name === type.unique_key ? " *" : ""}`
-        + (field.description ? ` — ${field.description}` : "")
-        + (origin ? ` (${origin})` : ""),
-    });
+    const line = el("li");
+    line.append(el("strong", { textContent: name }));
+    line.append(document.createTextNode(` — ${field.type}`));
+    if (required.has(name)) line.append(el("span", { className: "badge", textContent: "Required" }));
+    if (name === type.unique_key) line.append(el("span", { className: "badge", textContent: "Unique" }));
+    if (field.description) line.append(document.createTextNode(` — ${field.description}`));
+    if (field["x-origin"]) line.append(el("span", {
+      className: "badge",
+      textContent: field["x-origin"],
+    }));
     rows.append(line);
   }
   return rows;
 }
 
 async function showHistory(name, parent) {
+  parent.querySelector(".type-history")?.remove();
   const historyBox = el("div", { className: "type-history" });
   historyBox.append(el("h4", { textContent: "Type history" }));
   parent.append(historyBox);
@@ -78,6 +82,8 @@ export function renderTypeDetails(name, container) {
   container.replaceChildren();
   const type = typeByName(name);
   if (!type) return;
+  const option = [...$("e-type").options].find((item) => item.value === name);
+  if (option) option.textContent = `${name} (v${type.schema_version || 1}) · ${type.count}`;
   const details = el("details", { className: "type-details" });
   details.append(el("summary", {
     textContent: `Type details · v${type.schema_version || 1}`,
@@ -167,19 +173,4 @@ export function openAddField(typeName, onSaved = async () => {}) {
     }
   });
   dialog.showModal();
-}
-
-export async function openTypeRoute(name) {
-  if (!/^[a-z][a-z0-9_]{0,40}$/.test(name)) return;
-  if (!types.length) await refreshTypes();
-  const type = typeByName(name);
-  if (!type) return;
-  $("e-type").value = name;
-  renderTypeDetails(name, $("e-type-details"));
-  location.hash = "#entities";
-  $("tab-entities").hidden = false;
-  document.querySelector('#tabs button[data-tab="entities"]').classList.add("active");
-  for (const section of document.querySelectorAll("main > section")) {
-    if (section.id.startsWith("tab-")) section.hidden = section.id !== "tab-entities";
-  }
 }

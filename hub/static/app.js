@@ -350,7 +350,10 @@ async function loadEntities() {
   try {
     entityTypes = await refreshTypes();
     const cur = sel.value;
-    sel.replaceChildren(...entityTypes.map((t) => el("option", { value: t.name, textContent: t.name + " (" + t.count + ")" })));
+    sel.replaceChildren(...entityTypes.map((t) => el("option", {
+      value: t.name,
+      textContent: `${t.name} (v${t.schema_version || 1}) · ${t.count}`,
+    })));
     if (cur) sel.value = cur;
     renderTypeDetails(sel.value, $("e-type-details"));
     await loadEntityRows();
@@ -463,6 +466,23 @@ $("e-type").addEventListener("change", () => {
 $("e-new").addEventListener("click", openNewEntity);
 $("e-newtype").addEventListener("click", openNewType);
 
+function routeType(name) {
+  let typeName;
+  try {
+    typeName = decodeURIComponent(name);
+  } catch (_error) {
+    return;
+  }
+  if (!/^[a-z][a-z0-9_]{0,40}$/.test(typeName)) return;
+  Promise.resolve(showTab("entities")).then(() => {
+    if (entityTypes.some((type) => type.name === typeName)) {
+      $("e-type").value = typeName;
+      renderTypeDetails(typeName, $("e-type-details"));
+      loadEntityRows();
+    }
+  });
+}
+
 (async () => {
   try {
     const h = await api("/health");
@@ -478,14 +498,7 @@ window.addEventListener("hashchange", () => {
   if (name === "capture") {
     showTab("capture");
   } else if (name === "types") {
-    const typeName = decodeURIComponent(location.hash.slice("#types/".length));
-    Promise.resolve(showTab("entities")).then(() => {
-      if (entityTypes.some((type) => type.name === typeName)) {
-        $("e-type").value = typeName;
-        renderTypeDetails(typeName, $("e-type-details"));
-        loadEntityRows();
-      }
-    });
+    routeType(location.hash.slice("#types/".length));
   } else if (tabNames.has(name)) {
     showTab(name);
   } else if (/^#note\/[a-f0-9]{8,64}$/.test(location.hash)) {
@@ -508,14 +521,7 @@ if (!location.hash) {
   const name = location.hash.slice(1).split("/")[0];
   if (tabNames.has(name)) showTab(name);
   else if (name === "types") {
-    const typeName = decodeURIComponent(location.hash.slice("#types/".length));
-    Promise.resolve(showTab("entities")).then(() => {
-      if (entityTypes.some((type) => type.name === typeName)) {
-        $("e-type").value = typeName;
-        renderTypeDetails(typeName, $("e-type-details"));
-        loadEntityRows();
-      }
-    });
+    routeType(location.hash.slice("#types/".length));
   }
   else showTab("capture");
 }

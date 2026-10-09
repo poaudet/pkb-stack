@@ -36,6 +36,7 @@ const state = {
   validateVersion: 0,
   undoReport: null,
   badgeTimer: null,
+  resultId: null,
 };
 
 function el(tag, props, ...children) {
@@ -315,6 +316,18 @@ function setOverride(op, field, value) {
   scheduleValidation();
 }
 
+function setExtensionOverride(op, properties) {
+  const id = String(op.id);
+  const override = opOverride(id);
+  if (JSON.stringify(properties) === JSON.stringify(op.add_properties || {})) {
+    delete override.add_properties;
+  } else {
+    override.add_properties = properties;
+  }
+  if (!Object.keys(override).length) state.overrides.delete(id);
+  scheduleValidation();
+}
+
 function inputForRef(op, fieldName, property, original, errorBox) {
   const values = Array.isArray(original) ? [...original] : [original];
   const wrap = el("div", { className: "reference-chips" });
@@ -359,7 +372,8 @@ function renderForm(op, sourceKey, onlyPresent = false) {
   const properties = Object.assign({}, schema.properties || {});
   for (const extension of state.capture.plan.ops || []) {
     if (extension.kind === "extend_entity_type" && extension.type === op.type) {
-      Object.assign(properties, extension.add_properties || {});
+      Object.assign(properties,
+        opOverride(extension.id).add_properties || extension.add_properties || {});
     }
   }
   const visible = new Set(Object.keys(values));
@@ -399,7 +413,10 @@ function renderForm(op, sourceKey, onlyPresent = false) {
       more.append(el("summary", { textContent: "More fields" }));
       for (const name of remaining) {
         const property = properties[name];
-        if (property["x-ref"]) continue;
+        if (property["x-ref"]) {
+          more.append(inputForRef(op, name, property, [], null));
+          continue;
+        }
         const field = schemaField(name, property, undefined, (schema.required || []).includes(name), String(op.id));
         field.input.dataset.fieldName = name;
         const error = el("small", { className: "capture-error-text", role: "status" });
@@ -424,9 +441,10 @@ function renderForm(op, sourceKey, onlyPresent = false) {
 
 function editExtension(op) {
   const original = op.add_properties || {};
-  const current = Object.assign({}, original, opOverride(op.id).add_properties || {});
+  const current = Object.assign({}, opOverride(op.id).add_properties || original);
   const box = el("div", { className: "capture-edit-form" });
   for (const [fieldName, property] of Object.entries(current)) {
+    let currentName = fieldName;
     const name = el("input", {
       type: "text",
       value: fieldName,
@@ -442,14 +460,14 @@ function editExtension(op) {
       el("p", { className: "meta", textContent: `Type: ${property.type}${property.format ? ` (${property.format})` : ""}` }),
       el("label", { textContent: "Description" }, description));
     const save = () => {
-      const next = {};
-      for (const [oldName, oldValue] of Object.entries(current)) {
-        const nextName = oldName === fieldName ? name.value : oldName;
-        next[nextName] = Object.assign({}, oldValue, {
-          description: oldName === fieldName ? description.value : oldValue.description,
-        });
-      }
-      setOverride(op, "add_properties", next);
+      const next = Object.assign({}, opOverride(op.id).add_properties || original);
+      const value = Object.assign({}, next[currentName] || property, {
+        description: description.value,
+      });
+      if (name.value !== currentName) delete next[currentName];
+      next[name.value] = value;
+      currentName = name.value;
+      setExtensionOverride(op, next);
     };
     name.addEventListener("input", save);
     description.addEventListener("input", save);
@@ -472,6 +490,8 @@ function operationBadge(op) {
 }
 
 function operationTitle(op) {
+  const badge = operationBadge(op);
+  if (op.label && String(op.label).toLowerCase().startsWith(badge.toLowerCase())) return op.label;
   const type = op.type || "";
   const info = state.typeCache.get(type);
   const key = info && info.unique_key || "name";
@@ -504,6 +524,9 @@ function renderOp(op) {
   }
   const status = el("span", { className: "badge capture-status-badge", textContent: op.status || "unknown" });
   card.append(status);
+  if (Object.keys(opOverride(op.id)).some((key) => key !== "include")) {
+    card.append(el("span", { className: "badge", textContent: "Edited" }));
+  }
   if (op.why) card.append(el("p", { className: "meta capture-why", textContent: op.why }));
   const validation = el("div", { className: "op-validation", "aria-live": "polite" });
   for (const error of op.errors || []) validation.append(el("p", { className: "capture-error-text", textContent: error }));
@@ -539,8 +562,13 @@ function renderOp(op) {
     card.append(editExtension(op));
   } else if (op.kind === "create_entity_type") {
     const schema = op.json_schema || {};
+    const required = new Set(schema.required || []);
     for (const [name, property] of Object.entries(schema.properties || {})) {
-      card.append(el("p", { className: "meta", textContent: `${name} — ${property.type}` }));
+      card.append(el("p", {
+        className: "meta",
+        textContent: `${name} — ${property.type}${required.has(name) ? " · required" : ""}`
+          + (property.description ? ` · ${property.description}` : ""),
+      }));
     }
   }
   return card;
@@ -821,11 +849,13 @@ async function renderReadyPlan(capture, shouldValidate = true) {
   state.capture = capture;
   state.validationPending = shouldValidate;
   state.validationFailed = false;
+  const options = routeSignal();
   const section = $("capture-plan");
   section.replaceChildren();
   section.hidden = false;
   let types = [];
-  try { types = await refreshTypes(); } catch (_error) { /* server validation remains authoritative */ }
+  try { types = await refreshTypes(options); } catch (_error) { /* server validation remains authoritative */ }
+  if (options.signal.aborted) return;
   state.typeCache = new Map(types.map((type) => [type.name, type]));
   const ids = new Set();
   for (const op of capture.plan.ops || []) {
@@ -841,10 +871,11 @@ async function renderReadyPlan(capture, shouldValidate = true) {
   }
   if (ids.size) {
     try {
-      const response = await captureApi.labels([...ids], routeSignal());
+      const response = await captureApi.labels([...ids], options);
       for (const [id, label] of Object.entries(response.labels || {})) state.labels.set(id, label);
     } catch (_error) { /* unresolved references use type labels, never raw ids */ }
   }
+  if (options.signal.aborted) return;
   section.append(el("h2", { tabIndex: -1, textContent: capture.plan.summary || "Capture plan" }));
   const metadata = [];
   if (capture.llm_model) metadata.push(capture.llm_model);
@@ -872,7 +903,7 @@ function renderResult(capture) {
   section.replaceChildren();
   section.hidden = false;
   section.append(el("h2", { textContent: "Capture results" }));
-  if (state.lastApply) {
+  if (state.lastApply && String(state.resultId) === String(capture.id)) {
     const list = el("ul");
     for (const item of state.lastApply.applied || []) {
       const row = el("li");
@@ -892,7 +923,13 @@ function renderResult(capture) {
     if ((state.lastApply.skipped || []).length) {
       section.append(el("h3", { textContent: "Skipped" }));
       for (const skipped of state.lastApply.skipped) {
-        section.append(el("p", { textContent: typeof skipped === "string" ? skipped : skipped.reason || "Skipped" }));
+        const id = typeof skipped === "string" ? skipped : skipped.op_id || skipped.id;
+        const op = (capture.plan.ops || []).find((item) => String(item.id) === String(id));
+        section.append(el("p", {
+          textContent: typeof skipped === "string"
+            ? `${op && op.label || op && op.type || "Operation"} was skipped.`
+            : `${skipped.label || op && op.label || "Operation"}: ${skipped.reason || "skipped"}`,
+        }));
       }
     }
   } else {
@@ -901,11 +938,16 @@ function renderResult(capture) {
   if (state.undoReport) {
     const report = state.undoReport;
     section.append(el("h3", { textContent: "Undo report" }));
-    section.append(el("p", { textContent: `Undone: ${(report.undone || []).join(", ") || "none"}` }));
+    const labels = (report.undone || []).map((id) =>
+      (capture.plan.ops || []).find((op) => String(op.id) === String(id)))
+      .filter(Boolean).map((op) => op.label || op.type || operationBadge(op));
+    section.append(el("p", {
+      textContent: `Undone: ${labels.join(", ") || `${(report.undone || []).length} item(s)`}`,
+    }));
     for (const [key, description] of [["kept_modified", "Kept because modified"], ["kept_in_use", "Kept because in use"], ["types_left", "Type changes left"]]) {
       if ((report[key] || []).length) section.append(el("p", {
         className: "capture-warning",
-        textContent: `${description}: ${report[key].join(", ")}`,
+        textContent: `${description}: ${report[key].length} item(s).`,
       }));
     }
   }
@@ -916,7 +958,12 @@ function renderResult(capture) {
     actions.append(undo);
   }
   const newCapture = el("button", { type: "button", className: "secondary", textContent: "New capture" });
-  newCapture.addEventListener("click", () => { state.lastApply = null; state.undoReport = null; location.hash = "#capture"; });
+  newCapture.addEventListener("click", () => {
+    state.lastApply = null;
+    state.undoReport = null;
+    state.resultId = null;
+    location.hash = "#capture";
+  });
   actions.append(newCapture);
   section.append(actions);
 }
@@ -927,20 +974,26 @@ async function applyCapture(capture) {
   if (!selected.length || selected.some((op) => op.status !== "valid")) return;
   const schemaOps = selected.filter((op) => ["schema_change", "new_type"].includes(op.risk));
   if (schemaOps.length) {
-    const descriptions = schemaOps.flatMap((op) => Object.entries(opOverride(op.id).add_properties || op.add_properties || {})
-      .map(([field, property]) => `${op.type}.${field} (${property.type}) — ${property.description || ""}`));
+    const descriptions = schemaOps.flatMap((op) => {
+      const properties = opOverride(op.id).add_properties || op.add_properties
+        || op.json_schema && op.json_schema.properties || {};
+      return Object.entries(properties).map(([field, property]) =>
+        `${op.type || op.name}.${field} (${property.type}) — ${property.description || ""}`);
+    });
     const message = descriptions.length ? descriptions.join("\n") : schemaOps.map((op) => op.name || op.type).join("\n");
     if (!await confirmDialog("Confirm schema changes", message, "Add field(s)")) return;
   }
   const overwrite = selected.find((op) => op.risk === "overwrites_text");
   if (overwrite && !await confirmDialog("Confirm text replacement",
-    `This change overwrites text in ${overwrite.label || overwrite.type}. Continue?`, "Overwrite")) return;
+    `This change overwrites ${((overwrite.diff || []).map((change) => change.field).filter(Boolean).join(", "))
+      || "text"} in ${overwrite.label || overwrite.type}. Continue?`, "Overwrite")) return;
   const body = requestBody();
   body.allow_new_types = selected.some((op) => op.kind === "create_entity_type");
   state.busy = true;
   updateActionBar();
   try {
     state.lastApply = await captureApi.apply(capture.id, body, routeSignal());
+    state.resultId = String(capture.id);
     state.undoReport = null;
     await Promise.all([loadHistory(), refreshTypes()]);
     await refreshCapture();
@@ -983,6 +1036,11 @@ async function renderCapture(capture) {
   $("capture-message").textContent = "";
   $("capture-error").hidden = true;
   $("capture-title").textContent = `Capture · ${capture.state}`;
+  if (state.capture && String(state.capture.id) !== String(capture.id)) {
+    state.lastApply = null;
+    state.undoReport = null;
+    state.resultId = null;
+  }
 
   if (ACTIVE_STATES.has(capture.state)) {
     if (!state.pollStarted) {
@@ -1004,6 +1062,7 @@ async function renderCapture(capture) {
       state.validationFailed = false;
       state.lastApply = null;
       state.undoReport = null;
+      state.resultId = null;
     }
     for (const [question, answer] of Object.entries(capture.answers || {})) {
       if (!state.answers.has(question)) state.answers.set(question, answer);

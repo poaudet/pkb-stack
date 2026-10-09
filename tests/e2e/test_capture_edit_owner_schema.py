@@ -77,7 +77,7 @@ def test_e2_e3_schema_dependency_apply_undo_and_mobile_actions(page, ui_server):
     page.get_by_text("Undo report").wait_for()
 
     page.get_by_role("button", name="Entities").click()
-    page.locator("#e-type").select_option(label="person (1)")
+    page.locator("#e-type").select_option(value="person")
     page.locator("#e-type-details").get_by_text("Type details · v3").wait_for()
     page.locator("#e-type-details summary").click()
     assert page.locator("#e-type-details").get_by_text("favorite_color", exact=False).count() == 0
@@ -87,7 +87,7 @@ def test_e2_e3_schema_dependency_apply_undo_and_mobile_actions(page, ui_server):
 def test_e3_type_add_field_and_protected_owner_confirmation(page, ui_server):
     open_capture(page, ui_server(owner_name="Taylor"))
     page.get_by_role("button", name="Entities").click()
-    page.locator("#e-type").select_option(label="person (1)")
+    page.locator("#e-type").select_option(value="person")
     page.locator("#e-type-details summary").click()
     page.get_by_role("button", name="Add field").click()
     dialog = page.get_by_role("dialog")
@@ -96,6 +96,10 @@ def test_e3_type_add_field_and_protected_owner_confirmation(page, ui_server):
     dialog.get_by_label("Field description").fill("A familiar name.")
     dialog.get_by_role("button", name="Add field").click()
     page.locator("#e-type-details").get_by_text("Type details · v2").wait_for()
+    page.locator("#e-type-details summary").click()
+    page.locator("#e-type-details").get_by_role("button", name="History").click()
+    page.locator("#e-type-details").get_by_text("v1", exact=False).wait_for()
+    page.locator("#e-type-details").get_by_text("added nickname").wait_for()
     page.locator("#e-table .card").first.click()
 
     entity_dialog = page.locator("#entity-dialog")
@@ -110,6 +114,29 @@ def test_e3_type_add_field_and_protected_owner_confirmation(page, ui_server):
         .get_by_role("button", name="Force this action").click()
     page.get_by_role("button", name="Capture").click()
     page.locator("#capture-owner").get_by_role("button", name="Set up").wait_for()
+    page.locator("#capture-owner").get_by_role("button", name="Set up").click()
+    owner_dialog = page.get_by_role("dialog").filter(has=page.get_by_text("Owner record"))
+    owner_dialog.get_by_label("Owner name").wait_for()
+    owner_dialog.get_by_role("button", name="Close").click()
+
+
+@pytest.mark.e2e
+def test_e3_status_owner_capture_card_and_add_shortcut(page, ui_server):
+    open_capture(page, ui_server())
+    page.get_by_role("button", name="Status").click()
+    page.get_by_text("Model: capture-test").wait_for()
+    owner_form = page.locator("#status-owner-form")
+    owner_form.get_by_label("Owner name").fill("Taylor")
+    owner_form.get_by_role("button", name="Set owner").click()
+    owner_form.get_by_label("Owner name").wait_for()
+    assert owner_form.get_by_label("Owner name").input_value() == "Taylor"
+
+    page.get_by_role("button", name="Add").click()
+    page.get_by_label("Note text").fill("Quick capture from the Add tab.")
+    page.get_by_role("button", name="Analyze into records").click()
+    page.get_by_label("What would you like to remember?").wait_for()
+    assert page.get_by_label("What would you like to remember?").input_value() == \
+        "Quick capture from the Add tab."
 
 
 @pytest.mark.e2e
