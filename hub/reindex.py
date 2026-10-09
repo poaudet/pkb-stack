@@ -69,7 +69,9 @@ class Reindexer:
                 data = json.loads(r["data"])
                 t = types[r["type"]]
                 title = entities.entity_title(t["name"], data)
-                text = entities.render_text(t["name"], t["text_template"], data)
+                text = entities.render_text(
+                    t["name"], t["text_template"], data, json.loads(t["json_schema"])
+                )
                 vecs = hub.embedder.embed_documents([f"{title}\n{text}"])
                 with tx(conn):
                     notes._write_chunks(hub, conn, r["id"], title, [text], vecs, kind="entity")

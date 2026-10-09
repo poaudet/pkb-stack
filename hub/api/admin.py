@@ -56,6 +56,9 @@ def health():
                 "enabled": hub.settings.capture_enabled,
                 **_llm_info(hub.settings),
             },
+            "owner_configured": bool(conn.execute(
+                "SELECT 1 FROM meta WHERE key='self_uid'"
+            ).fetchone()),
             "counts": counts(conn),
         })
     finally:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from flask import Blueprint, current_app, jsonify, request
 
 from .. import entities as svc
+from .. import entity_types as type_svc
 from ..errors import validation
 from .notes import _actor, _body, _page
 
@@ -32,6 +33,25 @@ def types_create():
 @bp.get("/api/entity-types/<name>")
 def types_get(name: str):
     return _run(lambda h, c: jsonify({"type": svc.get_type(c, name)}))
+
+
+@bp.post("/api/entity-types/<name>/extend")
+def types_extend(name: str):
+    data = _body()
+    if set(data) != {"add_properties", "confirm"} or data.get("confirm") is not True:
+        raise validation("add_properties and confirm=true are required")
+    def extend_type(hub, conn):
+        result = type_svc.extend(
+            conn, name, data["add_properties"], actor=_actor(), max_new=20
+        )
+        return jsonify({key: result[key] for key in ("type", "version", "added")})
+
+    return _run(extend_type)
+
+
+@bp.get("/api/entity-types/<name>/history")
+def types_history(name: str):
+    return _run(lambda h, c: jsonify(type_svc.history(c, name)))
 
 
 @bp.patch("/api/entity-types/<name>")
@@ -77,21 +97,25 @@ def get(uid: str):
 @bp.patch("/api/entities/<uid>")
 def patch(uid: str):
     data = _body()
-    return _run(lambda h, c: jsonify({"entity": svc.patch_entity(h, c, uid, data, _actor())}))
+    force = request.args.get("force") == "true"
+    return _run(lambda h, c: jsonify(
+        {"entity": svc.patch_entity(h, c, uid, data, _actor(), force=force)}))
 
 
 @bp.post("/api/entities/<uid>/supersede")
 def supersede(uid: str):
     data = _body()
+    force = request.args.get("force") == "true"
     return _run(lambda h, c: (jsonify({"entity": svc.supersede_entity(
-        h, c, uid, data.get("data"), data.get("reason"), _actor())}), 201))
+        h, c, uid, data.get("data"), data.get("reason"), _actor(), force=force)}), 201))
 
 
 @bp.post("/api/entities/<uid>/archive")
 def archive(uid: str):
     reason = (request.get_json(silent=True) or {}).get("reason")
+    force = request.args.get("force") == "true"
     return _run(lambda h, c: jsonify({"entity": svc.set_status(c, uid, "archived", reason,
-                                                               _actor())}))
+                                                               _actor(), force=force)}))
 
 
 @bp.post("/api/entities/<uid>/restore")
@@ -104,5 +128,8 @@ def restore(uid: str):
 def forget(uid: str):
     if request.args.get("confirm") != "true":
         raise validation("confirm=true is required to forget an entity")
-    return _run(lambda h, c: (svc.forget_entity(h, c, uid, _actor(), request.args.get("reason")),
-                              jsonify({"ok": True}))[1])
+    force = request.args.get("force") == "true"
+    return _run(lambda h, c: (
+        svc.forget_entity(h, c, uid, _actor(), request.args.get("reason"), force=force),
+        jsonify({"ok": True}),
+    )[1])
