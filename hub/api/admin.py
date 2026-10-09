@@ -42,6 +42,8 @@ def counts(conn) -> dict:
 
 @bp.get("/health")
 def health():
+    from .capture import _llm_info
+
     hub = current_app.extensions["hub"]
     conn = hub.conn()
     try:
@@ -50,6 +52,10 @@ def health():
             "vector_backend": hub.store.backend,
             "embed_model": hub.embedder.model,
             "llm": llm_info(hub.settings),
+            "capture": {
+                "enabled": hub.settings.capture_enabled,
+                **_llm_info(hub.settings),
+            },
             "counts": counts(conn),
         })
     finally:

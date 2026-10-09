@@ -156,7 +156,8 @@ def _mirror(hub: Hub, conn: sqlite3.Connection, uid: str) -> None:
 
 
 def create_note(hub: Hub, conn, data: dict, actor: str = "ui", *, raw_content: str | None = None,
-                supersede: list[str] | None = None, in_tx=None) -> dict:
+                supersede: list[str] | None = None, in_tx=None,
+                source_override: str | None = None) -> dict:
     _require_embeddings(hub)
     content = _check_content(data.get("content"))
     title = _check_title(data.get("title"), content)
@@ -173,7 +174,9 @@ def create_note(hub: Hub, conn, data: dict, actor: str = "ui", *, raw_content: s
     if any(o["status"] != "current" for o in olds):
         raise ApiError("conflict", "only current notes can be superseded", 409)
     chunks, vecs = _prepare(hub, title, content)
-    source = actor if actor.startswith("agent:") else str(data.get("source") or "ui")
+    source = source_override or (
+        actor if actor.startswith("agent:") else str(data.get("source") or "ui")
+    )
     with tx(conn):
         nid, uid = _insert(hub, conn, title=title, content=content, tags=tags,
                            happened_at=happened, source=source, raw=raw_content,
