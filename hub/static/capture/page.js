@@ -14,6 +14,8 @@ const state = {
   pollStarted: 0,
   draftTimer: null,
   busy: false,
+  routeKey: "composer",
+  controller: new AbortController(),
 };
 
 function el(tag, props, ...children) {
@@ -93,9 +95,22 @@ function configText(config) {
   return `AI: ${host} · ${privacy} · ${limit}`;
 }
 
-async function loadConfig() {
+function routeSignal() {
+  return { signal: state.controller.signal };
+}
+
+function activateRoute(key) {
+  if (state.routeKey === key) return false;
+  stopPolling();
+  state.controller.abort();
+  state.controller = new AbortController();
+  state.routeKey = key;
+  return true;
+}
+
+async function loadConfig(options = routeSignal()) {
   try {
-    state.config = await captureApi.config();
+    state.config = await captureApi.config(options);
     $("capture-privacy").textContent = configText(state.config);
     $("capture-privacy").title = state.config.resets_at
       ? `Usage resets at ${state.config.resets_at}` : "";
@@ -103,6 +118,7 @@ async function loadConfig() {
     $("capture-text").maxLength = state.config.max_chars;
     updateCounter();
   } catch (error) {
+    if (error.name === "AbortError") return;
     state.config = null;
     $("capture-privacy").textContent = "AI configuration unavailable";
     $("capture-submit").hidden = false;
@@ -160,7 +176,7 @@ async function saveLongText() {
   setBusy(true);
   clearError();
   try {
-    const response = await captureApi.createNote(text);
+    const response = await captureApi.createNote(text, routeSignal());
     clearDraft();
     $("capture-text").value = "";
     $("capture-hint").value = "";
@@ -170,7 +186,7 @@ async function saveLongText() {
     );
     updateCounter();
   } catch (error) {
-    showError(error);
+    if (error.name !== "AbortError") showError(error);
   } finally {
     setBusy(false);
   }
@@ -196,7 +212,7 @@ async function submitCapture(options = {}) {
       as_of: $("capture-as-of").value || undefined,
       skip_ai: skipAi,
       ...(options.allowSecrets ? { allow_secrets: true } : {}),
-    });
+    }, routeSignal());
     clearDraft();
     $("capture-text").value = "";
     $("capture-hint").value = "";
@@ -211,10 +227,11 @@ async function submitCapture(options = {}) {
     }
     if (result.capture) {
       location.hash = `#capture/${encodeURIComponent(result.capture.id)}`;
-      await showCapture(result.capture.id, true);
+      state.pollStarted = Date.now();
+      routeCapture(location.hash);
     }
   } catch (error) {
-    showError(error);
+    if (error.name !== "AbortError") showError(error);
   } finally {
     setBusy(false);
     updateCounter();
@@ -360,9 +377,10 @@ async function showCapture(id, submitted = false) {
   $("capture-state").hidden = false;
   $("capture-state").textContent = strings.waiting;
   try {
-    const capture = await captureApi.get(id);
+    const capture = await captureApi.get(id, routeSignal());
     renderCapture(capture);
   } catch (error) {
+    if (error.name === "AbortError") return;
     $("capture-state").replaceChildren(el("p", { textContent: error.message }));
     showError(error);
   }
@@ -372,34 +390,35 @@ async function refreshCapture() {
   stopPolling();
   if (!state.currentId || document.hidden) return;
   try {
-    const capture = await captureApi.get(state.currentId);
+    const capture = await captureApi.get(state.currentId, routeSignal());
     renderCapture(capture);
   } catch (error) {
+    if (error.name === "AbortError") return;
     $("capture-state").replaceChildren(el("p", { textContent: error.message }));
   }
 }
 
 async function regenerate(id) {
   try {
-    const capture = await captureApi.regenerate(id);
+    const capture = await captureApi.regenerate(id, {}, routeSignal());
     state.pollStarted = Date.now();
     renderCapture(capture);
     await loadHistory();
   } catch (error) {
-    showError(error);
+    if (error.name !== "AbortError") showError(error);
   }
 }
 
 async function saveFailedCapture(id) {
   try {
-    const result = await captureApi.saveNote(id);
+    const result = await captureApi.saveNote(id, routeSignal());
     $("capture-state").replaceChildren(
       el("p", { textContent: "Saved as a note." }),
       el("a", { href: `#note/${encodeURIComponent(result.note.id)}`, textContent: "Open note" }),
     );
     await loadHistory();
   } catch (error) {
-    showError(error);
+    if (error.name !== "AbortError") showError(error);
   }
 }
 
@@ -423,11 +442,11 @@ function historyEntry(item) {
   return link;
 }
 
-async function loadHistory() {
+async function loadHistory(options = routeSignal()) {
   const list = $("capture-history");
   list.replaceChildren();
   try {
-    const result = await captureApi.list({ limit: 30 });
+    const result = await captureApi.list({ limit: 30 }, options);
     let outstanding = 0;
     for (const item of result.captures) {
       list.append(historyEntry(item));
@@ -436,7 +455,7 @@ async function loadHistory() {
     $("capture-badge").textContent = outstanding ? String(outstanding) : "";
     if (!result.captures.length) list.append(el("p", { textContent: strings.noHistory }));
   } catch (error) {
-    list.append(el("p", { textContent: error.message }));
+    if (error.name !== "AbortError") list.append(el("p", { textContent: error.message }));
   }
 }
 
@@ -477,7 +496,17 @@ export async function initCapture() {
     else if (state.currentId) refreshCapture();
   });
   restoreDraft();
-  await Promise.all([loadConfig(), loadHistory()]);
+  await Promise.all([
+    loadConfig(routeSignal()),
+    loadHistory(routeSignal()),
+  ]);
+}
+
+export function leaveCapture() {
+  stopPolling();
+  state.controller.abort();
+  state.controller = new AbortController();
+  state.routeKey = null;
 }
 
 export function routeCapture(hash) {
@@ -490,8 +519,9 @@ export function routeCapture(hash) {
     return;
   }
   if (id && CAPTURE_ID.test(id)) {
-    if (id !== state.currentId) showCapture(id);
+    const changed = activateRoute("capture:" + id);
+    if (changed || id !== state.currentId) showCapture(id);
   } else {
-    showComposer();
+    if (activateRoute("composer") || state.currentId !== null) showComposer();
   }
 }

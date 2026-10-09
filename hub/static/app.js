@@ -1,6 +1,6 @@
 "use strict";
 import { apiRequest } from "./capture/api.js";
-import { initCapture, routeCapture } from "./capture/page.js";
+import { initCapture, leaveCapture, routeCapture } from "./capture/page.js";
 
 const $ = (id) => document.getElementById(id);
 const tabNames = new Set(["capture", "search", "add", "review", "browse", "entities", "status"]);
@@ -25,6 +25,7 @@ function showTab(name) {
   }
   localStorage.setItem("pkb.lastTab", name);
   if (name === "capture") routeCapture(location.hash || "#capture");
+  else leaveCapture();
   if (name === "browse") loadBrowse();
   if (name === "review") loadReview();
   if (name === "entities") loadEntities();

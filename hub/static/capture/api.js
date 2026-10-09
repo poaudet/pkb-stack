@@ -18,6 +18,10 @@ async function fetchJson(path, options = {}, retried = false) {
   const response = await fetch(path, Object.assign({}, options, { headers }));
 
   if (response.status === 401 && !retried) {
+    const currentToken = localStorage.getItem(TOKEN_KEY);
+    if (currentToken && currentToken !== token) {
+      return fetchJson(path, options, true);
+    }
     const entered = window.prompt("API token required");
     if (entered) {
       localStorage.setItem(TOKEN_KEY, entered);
