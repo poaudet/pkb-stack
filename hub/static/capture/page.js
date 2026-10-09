@@ -4,7 +4,7 @@ import { closureDown, closureUp } from "./state.js";
 import { schemaField } from "./schemaform.js";
 import { renderDiff } from "./diff.js";
 import { confirmDialog } from "./dialog.js";
-import { openOwnerDialog, renderOwnerChip } from "../owner.js";
+import { renderOwnerChip } from "../owner.js";
 import { refreshTypes } from "../types.js";
 
 const DRAFT_KEY = "pkb.capture.draft";
@@ -585,7 +585,9 @@ function requestBody() {
     }
     if (include || Object.keys(item).length > 1) ops.push(item);
   }
-  const body = { ops, keep_note: state.keepNote };
+  const body = {};
+  if (ops.length) body.ops = ops;
+  if (state.keepNote !== Boolean(state.capture.plan.keep_note)) body.keep_note = state.keepNote;
   if ((state.capture.plan.ops || []).some((op) =>
     op.kind === "create_entity_type" && state.selected.has(String(op.id)))) {
     body.allow_new_types = true;
@@ -607,6 +609,23 @@ function updateActionBar() {
   if (apply) apply.disabled = !selected.length || invalid || state.busy;
 }
 
+function showDiff(card, changes) {
+  let table = card.querySelector(".capture-diff");
+  if (!changes || !changes.length) {
+    table?.remove();
+    return;
+  }
+  if (!table) {
+    table = renderDiff(changes);
+    const edit = card.querySelector(".edit-changes");
+    if (edit) card.insertBefore(table, edit);
+    else card.append(table);
+    return;
+  }
+  const replacement = renderDiff(changes);
+  table.replaceWith(replacement);
+}
+
 function updateValidationView() {
   const active = document.activeElement;
   const activeCard = active && active.closest("[data-op-id]");
@@ -623,6 +642,7 @@ function updateValidationView() {
       checkbox.disabled = op.status !== "valid" && !state.selected.has(String(op.id));
       checkbox.checked = state.selected.has(String(op.id));
     }
+    if (op.kind === "update_entity") showDiff(card, op.diff);
     const replacement = renderOp(op);
     card.replaceWith(replacement);
   }
@@ -1022,6 +1042,7 @@ async function undoCapture(capture) {
   if (!await confirmDialog("Undo capture", "Undo the changes made by this capture?", "Undo")) return;
   try {
     state.undoReport = await captureApi.undo(capture.id, routeSignal());
+    state.capture = null;
     await refreshTypes();
     await refreshCapture();
     await loadHistory();
