@@ -65,8 +65,6 @@ def create(hub: Hub, conn: sqlite3.Connection, data: dict, actor: str) -> tuple[
     text = data.get("text")
     if not isinstance(text, str) or not text.strip():
         raise validation("text is required")
-    if not hub.settings.capture_enabled:
-        raise ApiError("capture_disabled", "Smart Capture is disabled", 409)
     skip_ai = data.get("skip_ai") is True
     if skip_ai:
         if len(text) > hub.settings.capture_max_chars:
@@ -76,6 +74,8 @@ def create(hub: Hub, conn: sqlite3.Connection, data: dict, actor: str) -> tuple[
             actor, source_override="capture",
         )
         return {"note": note}, 201
+    if not hub.settings.capture_enabled:
+        raise ApiError("capture_disabled", "Smart Capture is disabled", 409)
     if not configured(hub.settings):
         raise ApiError("llm_not_configured", "Capture LLM is not configured", 409)
     digest = gates.gate(

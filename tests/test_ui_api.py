@@ -2,7 +2,6 @@ import json
 
 import pytest
 
-from hub import create_app
 from tests.test_capture import Stub, make_capture_client, submit, wait_capture
 
 
@@ -14,7 +13,7 @@ def stub():
 
 
 def test_capture_list_filters_and_summary(stub, tmp_path):
-    app, client = make_capture_client(tmp_path, stub)
+    _app, client = make_capture_client(tmp_path, stub)
     first = submit(client, "Working with Matt on PMT since June, launch is Oct 13.")
     ready = wait_capture(client, first)
 
@@ -69,7 +68,7 @@ def test_validate_reports_dependencies_without_writing(stub, tmp_path):
 
 
 def test_apply_accepts_revalidated_add_properties_override(stub, tmp_path):
-    app, client = make_capture_client(tmp_path, stub)
+    _app, client = make_capture_client(tmp_path, stub)
     owner = client.put("/api/self", json={"name": "Taylor"}).get_json()["self"]
     stub.reply = json.dumps({
         "summary": "Favorite color",
@@ -91,9 +90,9 @@ def test_apply_accepts_revalidated_add_properties_override(stub, tmp_path):
     override = {"type": "string", "description": "Preferred color"}
 
     validated = client.post(f"/api/capture/{capture_id}/validate", json={
-        "ops": [{"id": extension["id"], "add_properties": {
+        "ops": [{"id": extension["id"], "include": True, "add_properties": {
             "favorite_color": override,
-        }}],
+        }}, {"id": update["id"], "include": True}],
     })
 
     assert validated.status_code == 200
@@ -102,9 +101,9 @@ def test_apply_accepts_revalidated_add_properties_override(stub, tmp_path):
     assert history[-1]["version"] == 1
 
     applied = client.post(f"/api/capture/{capture_id}/apply", json={
-        "ops": [{"id": extension["id"], "add_properties": {
+        "ops": [{"id": extension["id"], "include": True, "add_properties": {
             "favorite_color": override,
-        }}],
+        }}, {"id": update["id"], "include": True}],
     })
 
     assert applied.status_code == 200, applied.get_json()

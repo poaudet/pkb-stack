@@ -2,8 +2,8 @@
 @media (prefers-color-scheme: dark) { :root { --bg:#16161a; --fg:#eee; --mut:#999; --card:#222228; --acc:#7aa2ff; } }
 * { box-sizing: border-box; }
 body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--fg); }
-nav { display:flex; position:sticky; top:0; background:var(--card); }
-nav button { flex:1; padding:14px 4px; border:0; background:none; color:var(--fg); font-size:1rem; }
+nav { display:flex; position:sticky; top:0; z-index:2; overflow-x:auto; background:var(--card); }
+nav button { flex:0 0 auto; min-height:48px; padding:12px 10px; border:0; background:none; color:var(--fg); font-size:1rem; white-space:nowrap; }
 nav button.active { border-bottom:3px solid var(--acc); font-weight:600; }
 main { max-width:800px; margin:0 auto; padding:12px; }
 input[type=text], input[type=search], input[type=password], input[type=number], input[type=date],
@@ -23,3 +23,23 @@ dialog { width:min(95vw,760px); background:var(--bg); color:var(--fg); border:1p
 pre { white-space:pre-wrap; word-break:break-word; }
 [hidden] { display: none !important; }
 dialog label { display:block; margin-top:8px; }
+.nav-badge { font-size:.8rem; }
+.capture-layout { display:grid; gap:16px; }
+.capture-privacy { border-left:4px solid var(--acc); padding:8px 10px; background:var(--card); }
+.capture-submit-bar { position:sticky; bottom:0; z-index:1; padding:8px 0 max(8px, env(safe-area-inset-bottom)); background:var(--bg); }
+.capture-submit-bar button { width:100%; min-height:48px; }
+.capture-skip-label { display:flex; align-items:center; gap:10px; min-height:44px; }
+.capture-skip-label input { width:20px; height:20px; }
+.capture-history-item { display:flex; align-items:center; flex-wrap:wrap; gap:6px; color:var(--fg); text-decoration:none; }
+.capture-history-summary { flex:1 1 160px; overflow-wrap:anywhere; }
+.capture-op { cursor:default; }
+.capture-op pre { overflow-x:auto; background:var(--bg); padding:10px; border-radius:6px; }
+.capture-warning { color:#8a5a00; }
+.capture-error-text { color:#b3261e; }
+.capture-error { padding:10px; border:1px solid #b3261e; border-radius:8px; }
+#capture-composer, #capture-detail, #capture-history-panel { min-width:0; }
+@media (min-width:900px) {
+  .capture-layout { grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); align-items:start; }
+  .capture-submit-bar { position:static; }
+  .capture-submit-bar button { width:auto; min-width:180px; }
+}

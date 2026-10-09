@@ -33,9 +33,13 @@ def _llm_info(settings) -> dict:
     local = host in ("localhost", "host.docker.internal")
     if host:
         try:
-            local = local or ipaddress.ip_address(host).is_loopback or ipaddress.ip_address(host).is_private
+            address = ipaddress.ip_address(host)
+            carrier_nat = ipaddress.ip_network("100.64.0.0/10")
+            local = (
+                local or address.is_loopback or address.is_private or address in carrier_nat
+            )
         except ValueError:
-            local = local or host.endswith(".local")
+            local = local or host.endswith(".local") or "." not in host
     return {"model": model or None, "host": host, "local": bool(local)}
 
 

@@ -7,8 +7,9 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<nav id="tabs">
-  <button data-tab="search" class="active">Search</button>
+<nav id="tabs" aria-label="Main navigation">
+  <button data-tab="capture" class="active">Capture <span class="nav-badge" id="capture-badge"></span></button>
+  <button data-tab="search">Search</button>
   <button data-tab="add">Add</button>
   <button data-tab="review" id="tab-review-btn" hidden>Review <span id="review-count"></span></button>
   <button data-tab="browse">Browse</button>
@@ -16,6 +17,45 @@
   <button data-tab="status">Status</button>
 </nav>
 <main>
+  <section id="tab-capture">
+    <div class="capture-layout">
+      <div class="capture-left">
+        <section id="capture-composer" aria-labelledby="capture-composer-title">
+          <h1 id="capture-composer-title">Capture</h1>
+          <p id="capture-privacy" class="capture-privacy" aria-live="polite">Loading AI settings…</p>
+          <label for="capture-text">What would you like to remember?</label>
+          <textarea id="capture-text" rows="6" maxlength="8000" autocapitalize="sentences"
+            spellcheck="true" enterkeyhint="send"></textarea>
+          <p id="capture-count" class="meta" aria-live="polite">0/8000</p>
+          <details>
+            <summary>Add context</summary>
+            <label for="capture-hint">Context</label>
+            <input id="capture-hint" type="text" maxlength="1000">
+          </details>
+          <label for="capture-as-of">As of</label>
+          <input id="capture-as-of" type="date">
+          <label class="capture-skip-label">
+            <input id="capture-skip-ai" type="checkbox">
+            Save as note without AI
+          </label>
+          <div id="capture-error" class="capture-error" role="alert" hidden></div>
+          <p id="capture-message" role="status" aria-live="polite"></p>
+          <div class="capture-submit-bar">
+            <button id="capture-submit">Analyze</button>
+          </div>
+        </section>
+        <section id="capture-history-panel" aria-labelledby="capture-history-title">
+          <h2 id="capture-history-title">Recent captures</h2>
+          <div id="capture-history"></div>
+        </section>
+      </div>
+      <section id="capture-detail" class="capture-detail" hidden aria-labelledby="capture-title">
+        <h1 id="capture-title" tabindex="-1">Capture</h1>
+        <div id="capture-state" role="status" aria-live="polite" hidden></div>
+        <div id="capture-plan" hidden></div>
+      </section>
+    </div>
+  </section>
   <section id="tab-search">
     <input id="q" type="search" placeholder="Search your notes" autocomplete="off">
     <label><input id="inc-sup" type="checkbox"> include superseded</label>
@@ -62,6 +102,6 @@
   <dialog id="review-detail"></dialog>
   <dialog id="entity-dialog"></dialog>
 </main>
-<script src="/static/app.js"></script>
+<script type="module" src="/static/app.js"></script>
 </body>
 </html>

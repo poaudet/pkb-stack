@@ -1,0 +1,41 @@
+{
+  "match": "Working with Matt on the PMT tool since June, launch is Oct 13.",
+  "response": {
+    "summary": "Working with Matt on PMT; launch Oct 13",
+    "ops": [
+      {
+        "id": "o1",
+        "op": "create_entity",
+        "type": "person",
+        "ref": "matt",
+        "data": {"name": "Matt", "relationship": "collaborator"}
+      },
+      {
+        "id": "o2",
+        "op": "create_entity",
+        "type": "project",
+        "ref": "pmt",
+        "data": {
+          "title": "PMT",
+          "status": "active",
+          "start_date": "2026-06-01",
+          "description": "Personal knowledge management tool (start day unknown)"
+        }
+      },
+      {
+        "id": "o3",
+        "op": "create_entity",
+        "type": "event",
+        "data": {
+          "date": "2026-10-13",
+          "title": "PMT launch",
+          "kind": "launch",
+          "people": [{"$ref": "matt"}]
+        }
+      }
+    ],
+    "keep_note": false,
+    "note": null,
+    "questions": []
+  }
+}

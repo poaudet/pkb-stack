@@ -1,0 +1,4 @@
+{
+  "match": "invalid-output",
+  "response": "This is deliberately not a JSON plan."
+}
