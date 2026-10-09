@@ -347,19 +347,32 @@ def _source(actor: str) -> str:
     return actor if actor.startswith("agent:") else "ui" if actor == "ui" else "api"
 
 
-def create_entity(hub: Hub, conn, type_name: str, data: object, actor: str = "api") -> dict:
+_PRECOMPUTED_UNSET = object()
+
+
+def create_entity(hub: Hub, conn, type_name: str, data: object, actor: str = "api", *,
+                  uid: str | None = None, precomputed=_PRECOMPUTED_UNSET,
+                  in_tx: bool = False, audit: bool = True) -> dict:
     trow = _type_row(conn, type_name)
     data = validate_data(trow, data)
-    prepared = _prepare(hub, trow, data)
-    uid = uuid.uuid4().hex
-    with tx(conn):
+    prepared = _prepare(hub, trow, data) if precomputed is _PRECOMPUTED_UNSET else precomputed
+    uid = uid or uuid.uuid4().hex
+
+    def write() -> None:
         _check_unique(conn, trow, data, None)
         eid = conn.execute(
             "INSERT INTO entities(uid,type,data,source) VALUES(?,?,?,?) RETURNING id",
             (uid, type_name, json.dumps(data, ensure_ascii=False), _source(actor)),
         ).fetchone()["id"]
         _write_chunk(hub, conn, eid, prepared)
-        _audit(conn, actor, "create", "entity", uid, type_name)
+        if audit:
+            _audit(conn, actor, "create", "entity", uid, type_name)
+
+    if in_tx:
+        write()
+    else:
+        with tx(conn):
+            write()
     return get_entity(conn, uid)
 
 
@@ -376,25 +389,37 @@ def merge_patch(target: object, patch: object) -> object:
     return out
 
 
-def patch_entity(hub: Hub, conn, uid: str, patch: object, actor: str = "api") -> dict:
+def patch_entity(hub: Hub, conn, uid: str, patch: object, actor: str = "api", *,
+                 precomputed=_PRECOMPUTED_UNSET, in_tx: bool = False,
+                 audit: bool = True) -> dict:
     row = _row(conn, uid)
     if not isinstance(patch, dict):
         raise validation("patch must be a JSON object")
     trow = _type_row(conn, row["type"])
     data = validate_data(trow, merge_patch(json.loads(row["data"]), patch))
-    prepared = _prepare(hub, trow, data)
-    with tx(conn):
+    prepared = _prepare(hub, trow, data) if precomputed is _PRECOMPUTED_UNSET else precomputed
+
+    def write() -> None:
         if row["status"] == "current":
             _check_unique(conn, trow, data, row["id"])
         conn.execute("UPDATE entities SET data=?, updated_at=? WHERE id=?",
                      (json.dumps(data, ensure_ascii=False), _now(), row["id"]))
         _write_chunk(hub, conn, row["id"], prepared)
-        _audit(conn, actor, "update", "entity", uid)
+        if audit:
+            _audit(conn, actor, "update", "entity", uid)
+
+    if in_tx:
+        write()
+    else:
+        with tx(conn):
+            write()
     return get_entity(conn, uid)
 
 
 def supersede_entity(hub: Hub, conn, uid: str, data: object, reason: str | None = None,
-                     actor: str = "api") -> dict:
+                     actor: str = "api", *, result_uid: str | None = None,
+                     precomputed=_PRECOMPUTED_UNSET, in_tx: bool = False,
+                     audit: bool = True) -> dict:
     old = _row(conn, uid)
     if old["status"] != "current":
         raise ApiError("conflict", "only a current entity can be superseded", 409)
@@ -402,9 +427,10 @@ def supersede_entity(hub: Hub, conn, uid: str, data: object, reason: str | None 
         raise validation("reason must be a string")
     trow = _type_row(conn, old["type"])
     data = validate_data(trow, data)
-    prepared = _prepare(hub, trow, data)
-    new_uid = uuid.uuid4().hex
-    with tx(conn):
+    prepared = _prepare(hub, trow, data) if precomputed is _PRECOMPUTED_UNSET else precomputed
+    new_uid = result_uid or uuid.uuid4().hex
+
+    def write() -> None:
         # the old row stops being current first, so a unique_key may be reused by the new one
         conn.execute("UPDATE entities SET status='superseded', status_reason=?, updated_at=? "
                      "WHERE id=?", (reason, _now(), old["id"]))
@@ -415,7 +441,14 @@ def supersede_entity(hub: Hub, conn, uid: str, data: object, reason: str | None 
         ).fetchone()["id"]
         conn.execute("UPDATE entities SET superseded_by=? WHERE id=?", (nid, old["id"]))
         _write_chunk(hub, conn, nid, prepared)
-        _audit(conn, actor, "supersede", "entity", uid, new_uid)
+        if audit:
+            _audit(conn, actor, "supersede", "entity", uid, new_uid)
+
+    if in_tx:
+        write()
+    else:
+        with tx(conn):
+            write()
     return get_entity(conn, new_uid)
 
 

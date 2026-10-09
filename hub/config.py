@@ -61,6 +61,7 @@ class Settings:
     capture_block_secrets: bool = True
     capture_daily_call_limit: int = 60
     capture_keep_raw_days: int = 30
+    hub_timezone: str = "UTC"
 
     @property
     def db_path(self) -> str:
@@ -103,4 +104,5 @@ class Settings:
             capture_block_secrets=_bool("CAPTURE_BLOCK_SECRETS", True),
             capture_daily_call_limit=_int("CAPTURE_DAILY_CALL_LIMIT", 60),
             capture_keep_raw_days=_int("CAPTURE_KEEP_RAW_DAYS", 30),
+            hub_timezone=_str("HUB_TIMEZONE", "UTC"),
         )

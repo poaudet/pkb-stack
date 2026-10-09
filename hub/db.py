@@ -79,10 +79,10 @@ def _m2(conn: sqlite3.Connection) -> None:
           prompt_tokens INTEGER,
           completion_tokens INTEGER,
           created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
-          decided_at TEXT);
-        CREATE INDEX IF NOT EXISTS idx_captures_state ON captures(state, created_at DESC);
+          decided_at TEXT          );
+          CREATE INDEX IF NOT EXISTS idx_captures_state ON captures(state, created_at DESC);
 
-        CREATE TABLE IF NOT EXISTS capture_ops(
+          CREATE TABLE IF NOT EXISTS capture_ops(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           capture_id INTEGER NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
           op_id TEXT NOT NULL,
@@ -101,7 +101,14 @@ def _m2(conn: sqlite3.Connection) -> None:
     )
 
 
-MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_m1, _m2]
+def _m3(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_captures_hash_state "
+        "ON captures(text_hash, state, created_at DESC)"
+    )
+
+
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_m1, _m2, _m3]
 
 
 def migrate(conn: sqlite3.Connection) -> None:
