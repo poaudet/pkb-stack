@@ -122,6 +122,7 @@ def _type_dict(r: sqlite3.Row) -> dict:
         "name": r["name"], "description": r["description"],
         "json_schema": json.loads(r["json_schema"]), "text_template": r["text_template"],
         "unique_key": r["unique_key"], "embed": bool(r["embed"]), "builtin": bool(r["builtin"]),
+        "schema_version": r["schema_version"],
         "created_at": r["created_at"], "updated_at": r["updated_at"],
     }
 
@@ -156,6 +157,12 @@ def seed_types(conn: sqlite3.Connection) -> None:
                 "UPDATE entity_types SET json_schema=?,updated_at=? WHERE name=?",
                 (json.dumps(schema), _now(), name),
             )
+        conn.execute(
+            "INSERT OR IGNORE INTO entity_type_history(type,version,json_schema,change,actor) "
+            "SELECT name,schema_version,json_schema,'{}','seed' FROM entity_types "
+            "WHERE name=?",
+            (name,),
+        )
 
 
 def list_types(conn: sqlite3.Connection) -> list[dict]:
@@ -199,6 +206,11 @@ def create_type(conn: sqlite3.Connection, data: dict, actor: str = "ui") -> dict
             "INSERT INTO entity_types(name,description,json_schema,text_template,unique_key,embed)"
             " VALUES(?,?,?,?,?,?)",
             (name, desc, json.dumps(schema), tmpl, ukey, int(embed)),
+        )
+        conn.execute(
+            "INSERT INTO entity_type_history(type,version,json_schema,change,actor) "
+            "VALUES(?,1,?,'{}',?)",
+            (name, json.dumps(schema), actor),
         )
         _audit(conn, actor, "create", "entity_type", name)
     return get_type(conn, name)
@@ -363,8 +375,10 @@ def _prepare(hub: Hub, type_row, data: dict):
     if hub.needs_reindex:
         raise ApiError("needs_reindex", "embedding model changed; reindex required", 409)
     title = entity_title(type_row["name"], data)
-    text = render_text(type_row["name"], type_row["text_template"], data,
-                       json.loads(type_row["json_schema"]))
+    schema = type_row["json_schema"]
+    if isinstance(schema, str):
+        schema = json.loads(schema)
+    text = render_text(type_row["name"], type_row["text_template"], data, schema)
     vecs = hub.embedder.embed_documents([f"{title}\n{text}"])
     return title, [text], vecs
 
@@ -527,7 +541,13 @@ def set_status(conn, uid: str, status: str, reason: str | None = None, actor: st
         self_svc.assert_change(conn, row, {}, force=force)
     with tx(conn):
         if status == "current":
-            _check_unique(conn, _type_row(conn, row["type"]), json.loads(row["data"]), row["id"])
+            type_row = _type_row(conn, row["type"])
+            data = json.loads(row["data"])
+            _check_unique(conn, type_row, data, row["id"])
+            if row["type"] == "person":
+                from . import self as self_svc
+
+                self_svc.assert_change(conn, None, data)
         conn.execute("UPDATE entities SET status=?, status_reason=?, updated_at=? WHERE id=?",
                      (status, reason, _now(), row["id"]))
         _audit(conn, actor, "archive" if status == "archived" else "restore", "entity", uid)

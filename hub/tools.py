@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from jsonschema import Draft202012Validator
 
 from . import entities, notes, pending
-from . import self as self_svc
 from . import search as search_svc
+from . import self as self_svc
 from .core import Hub
 from .errors import ApiError, validation
 

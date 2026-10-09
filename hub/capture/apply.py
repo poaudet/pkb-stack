@@ -6,7 +6,8 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from .. import entities, notes
+from .. import entities, entity_types, notes
+from .. import self as self_svc
 from ..db import tx
 from ..errors import ApiError
 from . import context, jobs, plan
@@ -40,6 +41,8 @@ def _plan_input(stored: dict, body: dict) -> tuple[dict, dict[str, dict]]:
         raw = {key: op[key] for key in (
             "id", "op", "type", "name", "ref", "target", "data", "patch", "reason",
             "description", "json_schema", "text_template", "unique_key", "embed",
+            "add_properties",
+            "add_properties",
         ) if key in op}
         raw_ops.append(raw)
     overrides = body.get("ops", [])
@@ -105,6 +108,7 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
     normalized = plan.normalize(
         conn, raw_plan, raw_text, candidates,
         max_ops=max(1, min(20, hub.settings.capture_max_ops)),
+        settings=hub.settings,
     )
     for item in normalized["ops"]:
         override = overrides.get(item["id"], {})
@@ -120,6 +124,17 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
                            op_id=item["id"], errors=item["errors"])
 
     selected = [op for op in normalized["ops"] if op["include"]]
+    selected_ids = {op["id"] for op in selected}
+    missing = [
+        {"op": op["id"], "requires": [dependency for dependency in op.get("requires", [])
+                                      if dependency not in selected_ids]}
+        for op in selected if any(dependency not in selected_ids
+                                  for dependency in op.get("requires", []))
+    ]
+    if missing:
+        raise ApiError("dependency", "selected operations require unchecked operations", 409,
+                       missing=missing)
+
     prepared: dict[str, dict] = {}
     uid_by_op: dict[str, str] = {}
     refs: dict[str, str] = {}
@@ -138,6 +153,27 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
         }
         for op in selected if op["kind"] == "create_entity_type"
     }
+    extension_schemas: dict[str, dict] = {}
+    extension_versions: dict[str, int] = {}
+    extension_previews: dict[str, dict] = {}
+    for op in selected:
+        if op["kind"] != "extend_entity_type":
+            continue
+        preview = entity_types.preview(
+            conn, op["type"], op["add_properties"],
+            max(1, hub.settings.capture_max_new_fields),
+            schema_override=extension_schemas.get(op["type"]),
+            version_override=extension_versions.get(op["type"]),
+        )
+        extension_previews[op["id"]] = preview
+        extension_schemas[op["type"]] = preview["schema"]
+        extension_versions[op["type"]] = preview["version_after"]
+    extended_types = {}
+    for type_name, schema in extension_schemas.items():
+        type_info = entities.get_type(conn, type_name)
+        type_info["json_schema"] = schema
+        extended_types[type_name] = type_info
+
     available_types = set(proposed_types)
     unavailable_types = {
         op["type"] for op in selected if op["kind"] == "create_entity"
@@ -151,7 +187,10 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
         kind = op["kind"]
         if kind == "create_entity":
             data = _resolve(op["data"], refs)
-            type_info = proposed_types.get(op["type"]) or entities.get_type(conn, op["type"])
+            type_info = (
+                proposed_types.get(op["type"]) or extended_types.get(op["type"])
+                or entities.get_type(conn, op["type"])
+            )
             prepared[op["id"]] = {
                 "data": data, "entity": entities._prepare(hub, type_info, data),
             }
@@ -162,10 +201,15 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
                                op_id=op["id"])
             patch_data = _resolve(op["patch"], refs)
             final = plan.merge_for_capture(before, patch_data)
-            type_info = entities.get_type(conn, row["type"])
+            type_info = extended_types.get(row["type"]) or entities.get_type(conn, row["type"])
+            type_row = conn.execute(
+                "SELECT * FROM entity_types WHERE name=?", (row["type"],)
+            ).fetchone()
+            if row["type"] in extension_schemas:
+                type_row = dict(type_row)
+                type_row["json_schema"] = json.dumps(extension_schemas[row["type"]])
             final = entities.validate_data(
-                conn.execute("SELECT * FROM entity_types WHERE name=?", (row["type"],)).fetchone(),
-                final,
+                type_row, final,
             )
             prepared[op["id"]] = {
                 "before": before, "before_hash": _hash_data(before), "final": final,
@@ -177,10 +221,13 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
                 raise ApiError("capture_apply", "supersede target is no longer current", 409,
                                op_id=op["id"])
             final = _resolve(op["data"], refs)
-            type_info = entities.get_type(conn, row["type"])
+            type_info = extended_types.get(row["type"]) or entities.get_type(conn, row["type"])
             type_row = conn.execute(
                 "SELECT * FROM entity_types WHERE name=?", (row["type"],)
             ).fetchone()
+            if row["type"] in extension_schemas:
+                type_row = dict(type_row)
+                type_row["json_schema"] = json.dumps(extension_schemas[row["type"]])
             final = entities.validate_data(type_row, final)
             prepared[op["id"]] = {
                 "before": before, "before_hash": _hash_data(before), "final": final,
@@ -218,7 +265,29 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
                          op.get("text_template"), op.get("unique_key"),
                          int(op.get("embed", True))),
                     )
+                    conn.execute(
+                        "INSERT INTO entity_type_history(type,version,json_schema,change,actor) "
+                        "VALUES(?,1,?,'{}',?)",
+                        (op["name"], json.dumps(op["json_schema"]), actor),
+                    )
                     entity_type, target_uid, result_uid = op["name"], None, op["name"]
+                elif kind == "extend_entity_type":
+                    extension = entity_types.extend(
+                        conn, op["type"], op["add_properties"], actor=actor,
+                        capture_uid=uid, max_new=max(1, hub.settings.capture_max_new_fields),
+                        in_tx=True,
+                    )
+                    extension_preview = extension_previews[op["id"]]
+                    entity_type, target_uid, result_uid = op["type"], None, op["type"]
+                    item["before"] = json.dumps({
+                        "added": extension["added"],
+                        "version_before": extension_preview["version_before"],
+                        "version_after": extension["version"],
+                    })
+                    applied_properties = extension["type"]["json_schema"]["properties"]
+                    item["after_hash"] = _hash_data({
+                        field: applied_properties[field] for field in extension["added"]
+                    })
                 elif kind == "create_entity":
                     result = entities.create_entity(
                         hub, conn, op["type"], item["data"], actor,
@@ -272,6 +341,9 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
                     before = json.dumps(item["before"], ensure_ascii=False, sort_keys=True)
                 if kind in ("update_entity", "supersede_entity"):
                     after_hash = _hash_data(item["final"])
+                if kind == "extend_entity_type":
+                    before = item["before"]
+                    after_hash = item["after_hash"]
                 conn.execute(
                     "INSERT INTO capture_ops(capture_id,op_id,kind,entity_type,target_uid,"
                     "result_uid,before,after_hash) VALUES(?,?,?,?,?,?,?,?)",
@@ -331,7 +403,7 @@ def undo(hub, conn, uid: str, actor: str) -> dict:
         type_info = entities.get_type(conn, row["type"])
         prepared[item["id"]] = entities._prepare(hub, type_info, before)
 
-    undone, kept_modified, types_left = [], [], []
+    undone, kept_modified, kept_in_use, types_left = [], [], [], []
     mirrored_notes: list[str] = []
     with tx(conn):
         for item in ops:
@@ -351,6 +423,14 @@ def undo(hub, conn, uid: str, actor: str) -> dict:
                 mirrored_notes.append(result_uid)
             elif kind == "create_entity_type":
                 types_left.append(item["entity_type"])
+            elif kind == "extend_entity_type":
+                before = json.loads(item["before"])
+                removed = entity_types.undo_extension(
+                    conn, item["entity_type"], before["added"], before["version_after"],
+                    uid, actor, in_tx=True,
+                )
+                if not removed:
+                    kept_in_use.append(item["op_id"])
             elif kind == "supersede_entity":
                 conn.execute(
                     "UPDATE entities SET status='archived',status_reason='capture undone',"
@@ -397,11 +477,14 @@ def undo(hub, conn, uid: str, actor: str) -> dict:
         conn.execute(
             "INSERT INTO audit_log(actor,action,target_kind,target_uid,detail) VALUES(?,?,?,?,?)",
             (actor, "capture_undo", "capture", uid,
-             json.dumps({"undone": undone, "kept_modified": kept_modified})),
+             json.dumps({"undone": undone, "kept_modified": kept_modified,
+                         "kept_in_use": kept_in_use})),
         )
+        self_svc.reconcile(conn)
     for note_uid in mirrored_notes:
         notes._mirror(hub, conn, note_uid)
-    return {"undone": undone, "kept_modified": kept_modified, "types_left": types_left}
+    return {"undone": undone, "kept_modified": kept_modified,
+            "kept_in_use": kept_in_use, "types_left": types_left}
 
 
 def _now() -> str:

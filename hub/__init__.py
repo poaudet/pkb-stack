@@ -8,12 +8,13 @@ def create_app(settings=None, embedder=None):
     from flask import Flask, jsonify
     from werkzeug.exceptions import HTTPException
 
-    from .api import admin, capture, entities, notes, pending, search, self as self_api, tools
+    from . import self as self_svc
+    from .api import admin, capture, entities, notes, pending, search, tools
+    from .api import self as self_api
     from .auth import init_auth
     from .config import Settings
     from .core import Hub
     from .errors import ApiError
-    from . import self as self_svc
 
     settings = settings or Settings.from_env()
     logging.basicConfig(level=getattr(logging, settings.log_level, logging.INFO))

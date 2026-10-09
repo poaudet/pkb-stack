@@ -97,7 +97,7 @@ def assert_change(conn, old_row, new_data: dict, *, force: bool = False) -> None
                                      (new_data["relationship"],)).fetchone()[0])
     if old_is_owner and not new_is_owner and not force:
         raise ApiError("protected", "the owner relationship is protected", 409)
-    if new_is_owner:
+    if new_is_owner and not old_is_owner:
         row = conn.execute(
             "SELECT uid FROM entities WHERE type='person' AND status='current' "
             "AND fold(json_extract(data, '$.relationship'))=fold('self') "

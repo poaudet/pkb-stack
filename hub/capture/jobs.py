@@ -262,7 +262,8 @@ class CaptureQueue:
                 except ZoneInfoNotFoundError as exc:
                     raise ValueError("HUB_TIMEZONE must be a valid timezone") from exc
                 catalog = context.build_catalog(
-                    conn, self.hub.settings.capture_exclude_types
+                    conn, self.hub.settings.capture_exclude_types,
+                    self.hub.settings.capture_catalog_max_chars,
                 )
                 candidates = context.build_candidates(
                     self.hub, conn, raw_text, self.hub.settings.capture_candidates
@@ -271,7 +272,8 @@ class CaptureQueue:
                 msgs = build_messages(
                     text=raw_text, hint=row["hint"], answers=json.loads(row["answers"]),
                     today=row["as_of"], catalog=catalog,
-                    candidates=context.candidate_lines(candidates), max_ops=max_ops,
+                    candidates=context.candidate_lines(candidates, context.self_line(conn)),
+                    self_line=context.self_line(conn), max_ops=max_ops,
                     tz=self.hub.settings.hub_timezone,
                 )
                 if sum(len(message["content"]) for message in msgs) > 24_000:
@@ -289,7 +291,8 @@ class CaptureQueue:
                     parsed = _parse_reply(result.text)
                     plan.validate(parsed)
                     normalized = plan.normalize(
-                        conn, parsed, raw_text, candidates, max_ops=max_ops
+                        conn, parsed, raw_text, candidates, max_ops=max_ops,
+                        settings=self.hub.settings,
                     )
                     return result, normalized
 

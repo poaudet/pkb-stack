@@ -5,9 +5,9 @@ import json
 import re
 
 from .. import search
+from .. import self as self_svc
 from ..db import fold
 from ..errors import ApiError
-from .. import self as self_svc
 
 
 def _field_type(prop: dict) -> str:
@@ -169,6 +169,14 @@ def _line_value(value: object) -> str:
     if isinstance(value, list):
         return ", ".join(str(item) for item in value)
     return str(value)
+
+
+def is_first_person(text: str) -> bool:
+    folded = fold(text) or ""
+    return bool(re.search(
+        r"\b(i|i'm|i've|i'd|i'll|me|my|mine|myself|je|moi|mon|ma|mes)\b",
+        folded,
+    ) or re.search(r"\b(j'|m')", folded))
 
 
 def candidate_lines(candidates: list[dict], owner_line: str = "SELF: none yet") -> str:
