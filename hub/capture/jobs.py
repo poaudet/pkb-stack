@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -89,7 +90,7 @@ def create(hub: Hub, conn: sqlite3.Connection, data: dict, actor: str) -> tuple[
         raise validation("hint exceeds 1000 characters")
     as_of = data.get("as_of")
     if as_of is not None:
-        if not isinstance(as_of, str):
+        if not isinstance(as_of, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", as_of):
             raise validation("as_of must be an ISO date")
         try:
             as_of = date.fromisoformat(as_of).isoformat()

@@ -140,7 +140,10 @@ def _validation_view(value: object) -> object:
 
 def _resolve_plain_refs(data: dict, schema: dict, candidates: list[dict],
                         aliases: dict[str, str]) -> dict:
-    labels = {fold(item["label"]): item["id"] for item in candidates if item.get("label")}
+    labels: dict[str, list[dict]] = {}
+    for item in candidates:
+        if item.get("label"):
+            labels.setdefault(fold(item["label"]) or "", []).append(item)
     out = copy.deepcopy(data)
     for key, prop in schema.get("properties", {}).items():
         ref_type = prop.get("x-ref")
@@ -154,10 +157,10 @@ def _resolve_plain_refs(data: dict, schema: dict, candidates: list[dict],
                 if value in aliases:
                     rewritten.append({"$ref": value})
                     continue
-                uid = labels.get(fold(value))
-                candidate = next((item for item in candidates if item.get("id") == uid), None)
+                matches = labels.get(fold(value) or "", [])
+                candidate = next((item for item in matches if item.get("type") == ref_type), None)
                 if candidate and candidate.get("type") == ref_type:
-                    rewritten.append(uid)
+                    rewritten.append(candidate["id"])
                     continue
             rewritten.append(value)
         out[key] = rewritten if is_array else rewritten[0]

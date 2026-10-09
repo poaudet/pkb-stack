@@ -68,3 +68,29 @@
 - Optional OpenAPI doc not implemented.
 - rclone backup profile already existed; see README.
 - Verification: see PR description (pytest, ruff, docker build).
+
+## Capture preconditions and C0-C2
+- §0 audit: the OpenAI-compatible `hub/llm.py` with JSON-mode fallback and tolerant parser,
+  entity services/type validation/unique keys and `hub/tools.py`, and the `ThreadPoolExecutor`
+  queue with startup recovery were already present. The repository identifies phases 0-4 as
+  complete; the existing and new suite passes together (63 passed, 1 skipped), and `ruff check .`
+  is clean.
+- Gap found before implementation: SQLite `fold()` and all `hub/capture/` modules/tables were
+  absent. Added the deterministic NFKD + casefold + combining-mark removal function to every
+  SQLite connection, then built Capture on a new schema migration.
+- `pytest` and `ruff` were not installed in the sandbox initially; installed the already-pinned
+  `requirements.txt` and `requirements-dev.txt` packages locally to run validation. No project
+  dependency was added. Docker CLI is present; build/run result is recorded after verification.
+- `HUB_TIMEZONE=UTC` is now an optional setting, as required by the Capture addendum. Capture
+  requests use it to choose `as_of`; raw text is also purged at startup and by a daily timer.
+- The Capture HTTP stub is a stdlib-only canned-plan server in `scripts/stub_llm.py`; automated
+  pipeline tests use an in-process OpenAI-compatible stub. No live LLM endpoint was contacted.
+- Entity create/supersede hooks accept pre-generated UIDs, precomputed embeddings, and an explicit
+  existing-transaction mode; update accepts precomputed embeddings. Capture suppresses per-entity
+  audit rows in favor of one ID-only `capture_apply` row.
+- Verification: `pytest -q` (63 passed, 1 skipped), `ruff check .`, and
+  `docker compose config --quiet` pass. `docker compose build` reaches the model-download step but
+  fails because the sandbox cannot resolve the Hugging Face host. A Python 3.11.17 Docker runtime
+  smoke test with `EMBED_BACKEND=fake` started the app and returned `/health` status `ok`; this
+  does not verify the production image's baked model.
+- Scope stops after C2: no Capture page (C3) or `capture_text`/tool profile integration (C4).
