@@ -92,3 +92,30 @@ storage, and the canned LLM scenarios:
 - Validation: `pytest -q` passed (75 passed, 1 skipped; E2E excluded by
   default); `pytest -q -m e2e` passed (8 browser tests); `ruff check .` and
   `git diff --check` passed.
+
+## E2/E3 pre-implementation audit (2026-10-09)
+- Rechecked §0 against the current tree before implementation. The existing E0/E1 inventory above
+  remains accurate: the vanilla-JS shell uses `createElement`/`textContent`, the Capture API adapter
+  normalizes `{capture}` and op IDs, token prompting/retry lives in `capture/api.js`, and the
+  Review/Entities tabs still fetch and render in `app.js`. E2 editing and apply UI, plus E3 owner,
+  type-detail, Add-tab, and Status integrations, were not present.
+- Capture C0-C2 and SELF/GAPS D0-D2 are present. `hub/capture/apply.py` implements apply,
+  no-write validation, and undo; `hub/capture/jobs.py` implements regenerate. Owner endpoints are
+  GET/PUT `/api/self`; entity types expose schema version and history, with extension at
+  `/api/entity-types/<name>/extend`. Capture and owner/schema API gaps needed by the UI are already
+  covered by E0/D0-D2; no server-side gap was identified for E2/E3.
+- Actual curl checks against a temporary Flask app with fake embeddings and `scripts/stub_llm.py`
+  confirmed the current wrappers: capture create/get/regenerate use `{capture: ...}`; apply returns
+  `{applied, skipped}`; undo returns `{undone, kept_modified, kept_in_use, types_left}`; GET/PUT
+  self use `{self, configured, conflicts}` / `{self}`; type list returns `{types}` with
+  `json_schema`, `schema_version`, `builtin`, `unique_key`, and `description`; extend returns
+  `{type, version, added}`; history returns `{type, history}`.
+- Baseline `pytest -q`: **75 passed, 1 skipped, 8 deselected**. `pytest` and project dependencies
+  were installed from the already-pinned requirement files because the sandbox initially had no
+  `pytest`.
+- Baseline `docker compose up -d` attempted a build but did not start the app: model download failed
+  because the sandbox could not resolve Hugging Face (`httpx.ConnectError`, DNS).
+  `docker compose ps -a` showed no running services.
+- `scripts/stub_llm.py --help` confirms fixture-directory support; the G1/H1/H2/H3/H4 and failure
+  fixtures are present in `tests/fixtures/capture/`. The E2/E3 browser tests will use the existing
+  Playwright harness and stub; no new dependency is needed.

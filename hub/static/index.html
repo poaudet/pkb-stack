@@ -23,6 +23,7 @@
         <section id="capture-composer" aria-labelledby="capture-composer-title">
           <h1 id="capture-composer-title">Capture</h1>
           <p id="capture-privacy" class="capture-privacy" aria-live="polite">Loading AI settings…</p>
+          <div id="capture-owner"></div>
           <label for="capture-text">What would you like to remember?</label>
           <textarea id="capture-text" rows="6" maxlength="8000" autocapitalize="sentences"
             spellcheck="true" enterkeyhint="send"></textarea>
@@ -51,6 +52,7 @@
       </div>
       <section id="capture-detail" class="capture-detail" hidden aria-labelledby="capture-title">
         <h1 id="capture-title" tabindex="-1">Capture</h1>
+        <div id="capture-owner-detail"></div>
         <div id="capture-state" role="status" aria-live="polite" hidden></div>
         <div id="capture-plan" hidden></div>
       </section>
@@ -62,11 +64,15 @@
     <div id="hits"></div>
   </section>
   <section id="tab-add" hidden>
+    <label for="add-title">Title (optional)</label>
     <input id="add-title" type="text" placeholder="Title (optional)">
+    <label for="add-content">Note text</label>
     <textarea id="add-content" rows="10" placeholder="Write a note (markdown)"></textarea>
+    <label for="add-tags">Tags, comma separated</label>
     <input id="add-tags" type="text" placeholder="tags, comma separated">
     <label id="add-tidy-row" hidden><input id="add-tidy" type="checkbox" checked> Let AI tidy this first</label>
     <button id="add-save">Save</button>
+    <button id="add-to-capture" class="secondary">Analyze into records →</button>
     <p id="add-msg"></p>
   </section>
   <section id="tab-review" hidden>
@@ -83,14 +89,26 @@
     <div id="b-list"></div>
   </section>
   <section id="tab-entities" hidden>
+    <label for="e-type">Entity type</label>
     <select id="e-type"></select>
     <button id="e-new">New</button>
     <button id="e-newtype" class="secondary">New type</button>
+    <section id="e-type-details" aria-live="polite"></section>
     <div id="e-table"></div>
     <h4>Recent activity</h4>
     <div id="e-activity"></div>
   </section>
   <section id="tab-status" hidden>
+    <section id="status-capture" class="card" aria-labelledby="status-capture-title">
+      <h2 id="status-capture-title">Capture</h2>
+      <div id="status-capture-details"></div>
+      <label class="capture-skip-label"><input id="status-skip-ai" type="checkbox">
+        Skip AI by default</label>
+    </section>
+    <section id="status-owner" class="card" aria-labelledby="status-owner-title">
+      <h2 id="status-owner-title">Owner</h2>
+      <div id="status-owner-form"></div>
+    </section>
     <p id="llm-badge"></p>
     <pre id="health"></pre>
     <button id="backup">Backup now</button>
@@ -101,6 +119,9 @@
   <dialog id="detail"></dialog>
   <dialog id="review-detail"></dialog>
   <dialog id="entity-dialog"></dialog>
+  <dialog id="owner-dialog"></dialog>
+  <dialog id="type-dialog"></dialog>
+  <dialog id="app-confirm-dialog"></dialog>
 </main>
 <script type="module" src="/static/app.js"></script>
 </body>

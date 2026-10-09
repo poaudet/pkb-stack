@@ -34,7 +34,7 @@ def test_e0_capture_shell_and_auth_smoke(page, ui_server, width, height):
 
 
 @pytest.mark.e2e
-def test_e1_g1_plan_renders_read_only(page, ui_server):
+def test_e2_g1_edit_apply_result_links_and_undo(page, ui_server):
     base_url = ui_server()
     open_capture(page, base_url)
     page.get_by_label("What would you like to remember?").fill(
@@ -45,8 +45,25 @@ def test_e1_g1_plan_renders_read_only(page, ui_server):
     page.locator("#capture-plan .capture-op").nth(2).wait_for()
     assert page.locator("#capture-plan .capture-op").count() == 3
     assert page.locator("#capture-plan").get_by_text("PMT launch").count() >= 1
-    assert page.locator("#capture-plan input[type=checkbox]").count() == 0
-    assert page.get_by_role("button", name="Apply").count() == 0
+    page.locator('[data-op-select="o3"]').uncheck()
+    page.locator('[data-op-id="o1"] [data-field-name="name"]').fill("Matt A.")
+    apply = page.get_by_role("button", name="Apply selected")
+    page.wait_for_function("() => !document.querySelector('#capture-apply').disabled")
+    apply.click()
+    page.get_by_role("heading", name="Capture results").wait_for()
+    entity_link = page.locator('#capture-plan a[href^="#entity/"]').first
+    assert entity_link.is_visible()
+    entity_link.click()
+    page.locator("#entity-dialog").wait_for()
+    page.locator("#entity-dialog").get_by_text("Matt A.", exact=False).wait_for()
+    page.locator("#entity-dialog").get_by_role("button", name="Close").click()
+
+    page.get_by_role("button", name="Capture").click()
+    page.locator("#capture-history a[href^='#capture/']").first.click()
+    page.get_by_role("button", name="Undo").click()
+    page.get_by_role("dialog").get_by_role("button", name="Undo").click()
+    page.get_by_text("Undo report").wait_for()
+    assert page.locator("#capture-history").get_by_text("undone").count() >= 1
 
 
 @pytest.mark.e2e
