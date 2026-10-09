@@ -142,6 +142,20 @@ def seed_types(conn: sqlite3.Connection) -> None:
             (name, t.get("description", ""), json.dumps(t["json_schema"]),
              t.get("text_template"), t.get("unique_key")),
         )
+        existing = _type_row(conn, name)
+        schema = json.loads(existing["json_schema"])
+        changed = False
+        for field, definition in t["json_schema"].get("properties", {}).items():
+            if (field in schema.get("properties", {})
+                    and "description" not in schema["properties"][field]
+                    and definition.get("description")):
+                schema["properties"][field]["description"] = definition["description"]
+                changed = True
+        if changed:
+            conn.execute(
+                "UPDATE entity_types SET json_schema=?,updated_at=? WHERE name=?",
+                (json.dumps(schema), _now(), name),
+            )
 
 
 def list_types(conn: sqlite3.Connection) -> list[dict]:
@@ -244,10 +258,31 @@ def _render_value(v: object) -> str:
     return str(v)
 
 
-def render_text(type_name: str, template: str | None, data: dict) -> str:
+def render_text(type_name: str, template: str | None, data: dict,
+                schema: dict | None = None) -> str:
     if template:
         out = re.sub(r"\{(\w+)\}", lambda m: _render_value(data.get(m.group(1))), template)
-        return re.sub(r"[ \t]+", " ", out).strip()
+        out = re.sub(r"[ \t]+", " ", out).strip()
+        if schema:
+            placeholders = set(re.findall(r"\{(\w+)\}", template))
+            extras = []
+            length = 0
+            for name, prop in schema.get("properties", {}).items():
+                value = data.get(name)
+                if (name in placeholders or prop.get("type") == "object" or prop.get("x-ref")
+                        or value is None or value == "" or value == [] or value == {}):
+                    continue
+                rendered = _render_value(value)
+                addition = f"; {name}: {rendered}"
+                remaining = 800 - length
+                if remaining <= 0:
+                    break
+                if len(addition) > remaining:
+                    addition = addition[:remaining]
+                extras.append(addition)
+                length += len(addition)
+            out += "".join(extras)
+        return out
     parts = "; ".join(f"{k}: {_render_value(v)}" for k, v in data.items())
     return f"{type_name}: {parts}"
 
@@ -328,7 +363,8 @@ def _prepare(hub: Hub, type_row, data: dict):
     if hub.needs_reindex:
         raise ApiError("needs_reindex", "embedding model changed; reindex required", 409)
     title = entity_title(type_row["name"], data)
-    text = render_text(type_row["name"], type_row["text_template"], data)
+    text = render_text(type_row["name"], type_row["text_template"], data,
+                       json.loads(type_row["json_schema"]))
     vecs = hub.embedder.embed_documents([f"{title}\n{text}"])
     return title, [text], vecs
 
@@ -352,9 +388,14 @@ _PRECOMPUTED_UNSET = object()
 
 def create_entity(hub: Hub, conn, type_name: str, data: object, actor: str = "api", *,
                   uid: str | None = None, precomputed=_PRECOMPUTED_UNSET,
-                  in_tx: bool = False, audit: bool = True) -> dict:
+                  in_tx: bool = False, audit: bool = True,
+                  owner_internal: bool = False) -> dict:
     trow = _type_row(conn, type_name)
     data = validate_data(trow, data)
+    if type_name == "person":
+        from . import self as self_svc
+
+        self_svc.assert_change(conn, None, data)
     prepared = _prepare(hub, trow, data) if precomputed is _PRECOMPUTED_UNSET else precomputed
     uid = uid or uuid.uuid4().hex
 
@@ -365,6 +406,10 @@ def create_entity(hub: Hub, conn, type_name: str, data: object, actor: str = "ap
             (uid, type_name, json.dumps(data, ensure_ascii=False), _source(actor)),
         ).fetchone()["id"]
         _write_chunk(hub, conn, eid, prepared)
+        if type_name == "person":
+            from . import self as self_svc
+
+            self_svc.reconcile(conn)
         if audit:
             _audit(conn, actor, "create", "entity", uid, type_name)
 
@@ -391,12 +436,17 @@ def merge_patch(target: object, patch: object) -> object:
 
 def patch_entity(hub: Hub, conn, uid: str, patch: object, actor: str = "api", *,
                  precomputed=_PRECOMPUTED_UNSET, in_tx: bool = False,
-                 audit: bool = True) -> dict:
+                 audit: bool = True, force: bool = False,
+                 owner_internal: bool = False) -> dict:
     row = _row(conn, uid)
     if not isinstance(patch, dict):
         raise validation("patch must be a JSON object")
     trow = _type_row(conn, row["type"])
     data = validate_data(trow, merge_patch(json.loads(row["data"]), patch))
+    if row["type"] == "person" and row["status"] == "current":
+        from . import self as self_svc
+
+        self_svc.assert_change(conn, row, data, force=force or owner_internal)
     prepared = _prepare(hub, trow, data) if precomputed is _PRECOMPUTED_UNSET else precomputed
 
     def write() -> None:
@@ -405,6 +455,10 @@ def patch_entity(hub: Hub, conn, uid: str, patch: object, actor: str = "api", *,
         conn.execute("UPDATE entities SET data=?, updated_at=? WHERE id=?",
                      (json.dumps(data, ensure_ascii=False), _now(), row["id"]))
         _write_chunk(hub, conn, row["id"], prepared)
+        if row["type"] == "person" and row["status"] == "current":
+            from . import self as self_svc
+
+            self_svc.reconcile(conn)
         if audit:
             _audit(conn, actor, "update", "entity", uid)
 
@@ -419,7 +473,7 @@ def patch_entity(hub: Hub, conn, uid: str, patch: object, actor: str = "api", *,
 def supersede_entity(hub: Hub, conn, uid: str, data: object, reason: str | None = None,
                      actor: str = "api", *, result_uid: str | None = None,
                      precomputed=_PRECOMPUTED_UNSET, in_tx: bool = False,
-                     audit: bool = True) -> dict:
+                     audit: bool = True, force: bool = False) -> dict:
     old = _row(conn, uid)
     if old["status"] != "current":
         raise ApiError("conflict", "only a current entity can be superseded", 409)
@@ -427,6 +481,10 @@ def supersede_entity(hub: Hub, conn, uid: str, data: object, reason: str | None 
         raise validation("reason must be a string")
     trow = _type_row(conn, old["type"])
     data = validate_data(trow, data)
+    if old["type"] == "person":
+        from . import self as self_svc
+
+        self_svc.assert_change(conn, old, data, force=force)
     prepared = _prepare(hub, trow, data) if precomputed is _PRECOMPUTED_UNSET else precomputed
     new_uid = result_uid or uuid.uuid4().hex
 
@@ -441,6 +499,10 @@ def supersede_entity(hub: Hub, conn, uid: str, data: object, reason: str | None 
         ).fetchone()["id"]
         conn.execute("UPDATE entities SET superseded_by=? WHERE id=?", (nid, old["id"]))
         _write_chunk(hub, conn, nid, prepared)
+        if old["type"] == "person":
+            from . import self as self_svc
+
+            self_svc.reconcile(conn)
         if audit:
             _audit(conn, actor, "supersede", "entity", uid, new_uid)
 
@@ -452,23 +514,37 @@ def supersede_entity(hub: Hub, conn, uid: str, data: object, reason: str | None 
     return get_entity(conn, new_uid)
 
 
-def set_status(conn, uid: str, status: str, reason: str | None = None, actor: str = "api") -> dict:
+def set_status(conn, uid: str, status: str, reason: str | None = None, actor: str = "api",
+               force: bool = False) -> dict:
     row = _row(conn, uid)
     if status == "archived" and row["status"] == "archived":
         raise ApiError("conflict", "already archived", 409)
     if status == "current" and row["status"] != "archived":
         raise ApiError("conflict", "only archived entities can be restored", 409)
+    if status == "archived" and row["type"] == "person" and row["status"] == "current":
+        from . import self as self_svc
+
+        self_svc.assert_change(conn, row, {}, force=force)
     with tx(conn):
         if status == "current":
             _check_unique(conn, _type_row(conn, row["type"]), json.loads(row["data"]), row["id"])
         conn.execute("UPDATE entities SET status=?, status_reason=?, updated_at=? WHERE id=?",
                      (status, reason, _now(), row["id"]))
         _audit(conn, actor, "archive" if status == "archived" else "restore", "entity", uid)
+        if row["type"] == "person":
+            from . import self as self_svc
+
+            self_svc.reconcile(conn)
     return get_entity(conn, uid)
 
 
-def forget_entity(hub: Hub, conn, uid: str, actor: str = "api", reason: str | None = None) -> None:
+def forget_entity(hub: Hub, conn, uid: str, actor: str = "api", reason: str | None = None,
+                  force: bool = False) -> None:
     row = _row(conn, uid)
+    if row["type"] == "person" and row["status"] == "current":
+        from . import self as self_svc
+
+        self_svc.assert_change(conn, row, {}, force=force)
     with tx(conn):
         ids = [r["id"] for r in conn.execute(
             "SELECT id FROM chunks WHERE owner_kind='entity' AND owner_id=?", (row["id"],))]
@@ -476,6 +552,10 @@ def forget_entity(hub: Hub, conn, uid: str, actor: str = "api", reason: str | No
         conn.execute("DELETE FROM chunks WHERE owner_kind='entity' AND owner_id=?", (row["id"],))
         conn.execute("DELETE FROM entities WHERE id=?", (row["id"],))
         _audit(conn, actor, "forget", "entity", uid, reason)
+        if row["type"] == "person":
+            from . import self as self_svc
+
+            self_svc.reconcile(conn)
 
 
 def list_entities(conn, type_name=None, status=None, limit: int = 50, offset: int = 0) -> dict:

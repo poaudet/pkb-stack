@@ -8,11 +8,12 @@ def create_app(settings=None, embedder=None):
     from flask import Flask, jsonify
     from werkzeug.exceptions import HTTPException
 
-    from .api import admin, capture, entities, notes, pending, search, tools
+    from .api import admin, capture, entities, notes, pending, search, self as self_api, tools
     from .auth import init_auth
     from .config import Settings
     from .core import Hub
     from .errors import ApiError
+    from . import self as self_svc
 
     settings = settings or Settings.from_env()
     logging.basicConfig(level=getattr(logging, settings.log_level, logging.INFO))
@@ -20,6 +21,7 @@ def create_app(settings=None, embedder=None):
     app.config["MAX_CONTENT_LENGTH"] = settings.max_body_mb * 1024 * 1024
     hub = Hub(settings, embedder)
     app.extensions["hub"] = hub
+    self_svc.startup(hub)
     from .pending import Queue
 
     hub.queue = Queue(hub)
@@ -32,7 +34,7 @@ def create_app(settings=None, embedder=None):
 
     hub.reindexer = Reindexer(hub)
     init_auth(app, settings.api_token)
-    for m in (admin, capture, entities, notes, pending, search, tools):
+    for m in (admin, capture, entities, notes, pending, search, self_api, tools):
         app.register_blueprint(m.bp)
 
     @app.get("/")

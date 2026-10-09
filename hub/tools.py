@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from jsonschema import Draft202012Validator
 
 from . import entities, notes, pending
+from . import self as self_svc
 from . import search as search_svc
 from .core import Hub
 from .errors import ApiError, validation
@@ -85,6 +86,12 @@ def _type_args(a: dict) -> dict:
 _ID = {"type": "string", "description": "The id returned by search or a previous call."}
 
 TOOLS: list[Tool] = [
+    Tool("get_self",
+         "Use to read the owner's own facts (preferences, habits, birthday) before asking them.",
+         _obj({}), lambda h, c, a, u: (
+             {"exists": False} if self_svc.get_self(c)["self"] is None
+             else {"entity": self_svc.get_self(c)["self"]}
+         )),
     Tool("search_knowledge",
          "Semantic + keyword search over the owner's notes AND entities (people, events, "
          "messages, memories, custom types). Use it for open questions like 'what do I know "

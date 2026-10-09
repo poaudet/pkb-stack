@@ -77,21 +77,25 @@ def get(uid: str):
 @bp.patch("/api/entities/<uid>")
 def patch(uid: str):
     data = _body()
-    return _run(lambda h, c: jsonify({"entity": svc.patch_entity(h, c, uid, data, _actor())}))
+    force = request.args.get("force") == "true"
+    return _run(lambda h, c: jsonify(
+        {"entity": svc.patch_entity(h, c, uid, data, _actor(), force=force)}))
 
 
 @bp.post("/api/entities/<uid>/supersede")
 def supersede(uid: str):
     data = _body()
+    force = request.args.get("force") == "true"
     return _run(lambda h, c: (jsonify({"entity": svc.supersede_entity(
-        h, c, uid, data.get("data"), data.get("reason"), _actor())}), 201))
+        h, c, uid, data.get("data"), data.get("reason"), _actor(), force=force)}), 201))
 
 
 @bp.post("/api/entities/<uid>/archive")
 def archive(uid: str):
     reason = (request.get_json(silent=True) or {}).get("reason")
+    force = request.args.get("force") == "true"
     return _run(lambda h, c: jsonify({"entity": svc.set_status(c, uid, "archived", reason,
-                                                               _actor())}))
+                                                               _actor(), force=force)}))
 
 
 @bp.post("/api/entities/<uid>/restore")
@@ -104,5 +108,8 @@ def restore(uid: str):
 def forget(uid: str):
     if request.args.get("confirm") != "true":
         raise validation("confirm=true is required to forget an entity")
-    return _run(lambda h, c: (svc.forget_entity(h, c, uid, _actor(), request.args.get("reason")),
-                              jsonify({"ok": True}))[1])
+    force = request.args.get("force") == "true"
+    return _run(lambda h, c: (
+        svc.forget_entity(h, c, uid, _actor(), request.args.get("reason"), force=force),
+        jsonify({"ok": True}),
+    )[1])

@@ -7,6 +7,7 @@ import re
 from .. import search
 from ..db import fold
 from ..errors import ApiError
+from .. import self as self_svc
 
 
 def _field_type(prop: dict) -> str:
@@ -25,9 +26,9 @@ def _field_type(prop: dict) -> str:
     return {"string": "text", "integer": "int"}.get(kind, kind)
 
 
-def build_catalog(conn, exclude_types: str = "place_visit") -> str:
+def build_catalog(conn, exclude_types: str = "place_visit", max_chars: int = 5000) -> str:
     excluded = {part.strip() for part in exclude_types.split(",") if part.strip()}
-    lines: list[str] = []
+    entries: list[dict] = []
     for row in conn.execute("SELECT * FROM entity_types ORDER BY name"):
         if row["name"] in excluded:
             continue
@@ -38,11 +39,39 @@ def build_catalog(conn, exclude_types: str = "place_visit") -> str:
         fields = []
         for name, prop in list(props.items())[:40]:
             suffix = ("!" if name in required else "") + ("*" if name == unique_key else "")
-            fields.append(f"{name}{suffix}:{_field_type(prop)}")
+            description = str(prop.get("description") or "").replace("\n", " ")[:60]
+            fields.append({"name": name, "suffix": suffix, "type": _field_type(prop),
+                           "description": description, "protected": bool(prop.get("x-origin"))})
         desc = row["description"][:80].replace("\n", " ")
-        lines.append(f"{row['name']} — {desc}: {' '.join(fields)}")
-    out = "\n".join(lines)
-    return out[:3500]
+        entries.append({"name": row["name"], "description": desc, "fields": fields,
+                        "builtin": bool(row["builtin"])})
+
+    def render() -> str:
+        lines = []
+        for entry in entries:
+            fields = [
+                f"{field['name']}{field['suffix']}:{field['type']}"
+                + (f" ({field['description']})" if field["description"] else "")
+                for field in entry["fields"]
+            ]
+            lines.append(f"{entry['name']} — {entry['description']}: {' '.join(fields)}")
+        return "\n".join(lines)
+
+    budget = max(0, max_chars)
+    out = render()
+    description_fields = [
+        field for entry in entries if entry["builtin"]
+        for field in entry["fields"] if field["description"] and not field["protected"]
+    ] + [
+        field for entry in entries if not entry["builtin"]
+        for field in entry["fields"] if field["description"] and not field["protected"]
+    ]
+    for field in description_fields:
+        if len(out) <= budget:
+            break
+        field["description"] = ""
+        out = render()
+    return out[:budget]
 
 
 def _candidate_row(conn, uid: str) -> dict | None:
@@ -83,6 +112,9 @@ def build_candidates(hub, conn, text: str, limit: int = 25) -> list[dict]:
         "ORDER BY e.id DESC"
     ):
         data = json.loads(row["data"])
+        if (row["type"] == "person" and isinstance(data.get("relationship"), str)
+                and fold(data["relationship"]) == "self"):
+            continue
         label = None
         for key in dict.fromkeys((row["unique_key"], "name", "title")):
             value = data.get(key) if key else None
@@ -118,10 +150,31 @@ def build_candidates(hub, conn, text: str, limit: int = 25) -> list[dict]:
     return selected[:max(0, limit)]
 
 
-def candidate_lines(candidates: list[dict]) -> str:
-    if not candidates:
-        return "(none)"
-    return "\n".join(
+def self_line(conn) -> str:
+    owner = self_svc.get_self(conn)["self"]
+    if owner is None:
+        return "SELF: none yet"
+    data = owner["data"]
+    details = []
+    for field in ("interests", "habits"):
+        value = data.get(field)
+        if value:
+            details.append(f"{field}: {_line_value(value)}")
+    summary = "; ".join(details)[:160]
+    name = str(data.get("name", "")).replace("\n", " ")[:80]
+    return f"SELF | {owner['id']} | person | {name} | {summary}"
+
+
+def _line_value(value: object) -> str:
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value)
+    return str(value)
+
+
+def candidate_lines(candidates: list[dict], owner_line: str = "SELF: none yet") -> str:
+    lines = [owner_line]
+    lines.extend(
         f"{c['id']} | {c['type']} | {c['label']} | {c['key_fields']}"
         for c in candidates
     )
+    return "\n".join(lines)
