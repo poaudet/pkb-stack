@@ -48,6 +48,19 @@ class Settings:
     llm_concurrency: int = 1
     llm_max_input_chars: int = 12000
     tools_allow_destructive: bool = False
+    capture_enabled: bool = True
+    capture_llm_base_url: str = ""
+    capture_llm_api_key: str = ""
+    capture_llm_model: str = ""
+    capture_llm_extra_headers: str = ""
+    capture_llm_timeout: int = 120
+    capture_max_chars: int = 8000
+    capture_max_ops: int = 20
+    capture_candidates: int = 25
+    capture_exclude_types: str = "place_visit"
+    capture_block_secrets: bool = True
+    capture_daily_call_limit: int = 60
+    capture_keep_raw_days: int = 30
 
     @property
     def db_path(self) -> str:
@@ -77,4 +90,17 @@ class Settings:
             llm_concurrency=max(1, _int("LLM_CONCURRENCY", 1)),
             llm_max_input_chars=_int("LLM_MAX_INPUT_CHARS", 12000),
             tools_allow_destructive=_bool("TOOLS_ALLOW_DESTRUCTIVE", False),
+            capture_enabled=_bool("CAPTURE_ENABLED", True),
+            capture_llm_base_url=_str("CAPTURE_LLM_BASE_URL"),
+            capture_llm_api_key=_str("CAPTURE_LLM_API_KEY"),
+            capture_llm_model=_str("CAPTURE_LLM_MODEL"),
+            capture_llm_extra_headers=_str("CAPTURE_LLM_EXTRA_HEADERS"),
+            capture_llm_timeout=_int("CAPTURE_LLM_TIMEOUT", 120),
+            capture_max_chars=_int("CAPTURE_MAX_CHARS", 8000),
+            capture_max_ops=_int("CAPTURE_MAX_OPS", 20),
+            capture_candidates=_int("CAPTURE_CANDIDATES", 25),
+            capture_exclude_types=_str("CAPTURE_EXCLUDE_TYPES", "place_visit"),
+            capture_block_secrets=_bool("CAPTURE_BLOCK_SECRETS", True),
+            capture_daily_call_limit=_int("CAPTURE_DAILY_CALL_LIMIT", 60),
+            capture_keep_raw_days=_int("CAPTURE_KEEP_RAW_DAYS", 30),
         )

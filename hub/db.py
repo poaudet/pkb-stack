@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import unicodedata
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,11 +11,20 @@ from pathlib import Path
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 
+def fold(value: str | None) -> str | None:
+    """Case-fold text and remove combining marks for accent-insensitive matching."""
+    if value is None:
+        return None
+    decomposed = unicodedata.normalize("NFKD", value.casefold())
+    return "".join(char for char in decomposed if not unicodedata.combining(char))
+
+
 def connect(path: str, load_vec: bool = True) -> sqlite3.Connection:
     if sqlite3.sqlite_version_info < (3, 35):
         raise RuntimeError(f"SQLite >= 3.35 required, got {sqlite3.sqlite_version}")
     conn = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.create_function("fold", 1, fold, deterministic=True)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA busy_timeout=5000")
@@ -47,7 +57,51 @@ def _m1(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
-MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_m1]
+def _m2(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS captures(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          uid TEXT NOT NULL UNIQUE,
+          raw_text TEXT,
+          text_hash TEXT NOT NULL,
+          hint TEXT,
+          as_of TEXT,
+          source TEXT NOT NULL DEFAULT 'ui',
+          state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN (
+            'queued','processing','ready','failed','applied','rejected','undone')),
+          plan TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(plan)),
+          questions TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(questions)),
+          answers TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(answers)),
+          warnings TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(warnings)),
+          error TEXT,
+          llm_model TEXT,
+          prompt_tokens INTEGER,
+          completion_tokens INTEGER,
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+          decided_at TEXT);
+        CREATE INDEX IF NOT EXISTS idx_captures_state ON captures(state, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS capture_ops(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          capture_id INTEGER NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
+          op_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          entity_type TEXT,
+          target_uid TEXT,
+          result_uid TEXT,
+          before TEXT,
+          after_hash TEXT,
+          status TEXT NOT NULL DEFAULT 'applied' CHECK (status IN ('applied','undone')));
+
+        CREATE TABLE IF NOT EXISTS capture_usage(
+          day TEXT PRIMARY KEY,
+          calls INTEGER NOT NULL DEFAULT 0);
+        """
+    )
+
+
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_m1, _m2]
 
 
 def migrate(conn: sqlite3.Connection) -> None:
