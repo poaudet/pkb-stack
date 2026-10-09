@@ -70,3 +70,25 @@ gap`.
   validate, and entity-label behaviors while preserving existing response
   wrappers and service validation. E1 consumes the already available config,
   create, get, save-note, and list endpoints.
+
+## Post-implementation curl checks
+
+Re-ran curl against the updated Flask app using fake embeddings, temporary
+storage, and the canned LLM scenarios:
+
+- `GET /api/capture?state=ready&source=ui` returns
+  `{captures, items, total}`. `captures` is the compact projection with
+  `id, state, source, created_at, summary, model, op_count`; `items` retains
+  the existing full-object response for compatibility.
+- A ready H3 capture accepted `POST /api/capture/{id}/validate` and returned
+  `{ops, selection}`. Each op projection contains `id, status, errors,
+  warnings, diff, requires, label, risk`; `selection` reported
+  `{ok: true, missing: []}`.
+- The same request applied a revalidated `add_properties` override
+  successfully; `POST /api/entities/labels` returned `{labels}` and omitted
+  an unknown ID.
+- Reconfirmed the existing create/get/regenerate/apply/undo wrappers and
+  self/type/extend/history response shapes from the earlier curl audit.
+- Validation: `pytest -q` passed (75 passed, 1 skipped; E2E excluded by
+  default); `pytest -q -m e2e` passed (8 browser tests); `ruff check .` and
+  `git diff --check` passed.
