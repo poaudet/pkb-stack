@@ -1,5 +1,9 @@
 "use strict";
+import { apiRequest } from "./capture/api.js";
+import { initCapture, leaveCapture, routeCapture } from "./capture/page.js";
+
 const $ = (id) => document.getElementById(id);
+const tabNames = new Set(["capture", "search", "add", "review", "browse", "entities", "status"]);
 
 function el(tag, props, ...kids) {
   const e = document.createElement(tag);
@@ -8,22 +12,8 @@ function el(tag, props, ...kids) {
   return e;
 }
 
-async function api(path, opts = {}, retried = false) {
-  const headers = Object.assign({ "X-Actor": "ui" }, opts.headers || {});
-  const tok = localStorage.getItem("hub_token");
-  if (tok) headers["Authorization"] = "Bearer " + tok;
-  if (opts.body) headers["Content-Type"] = "application/json";
-  const r = await fetch(path, Object.assign({}, opts, { headers }));
-  if (r.status === 401 && !retried) {
-    const t = window.prompt("API token required");
-    if (t) {
-      localStorage.setItem("hub_token", t);
-      return api(path, opts, true);
-    }
-  }
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((data.error && data.error.message) || r.statusText);
-  return data;
+async function api(path, opts = {}) {
+  return apiRequest(path, opts);
 }
 
 function showTab(name) {
@@ -33,6 +23,9 @@ function showTab(name) {
   for (const s of document.querySelectorAll("main > section")) {
     s.hidden = s.id !== "tab-" + name;
   }
+  localStorage.setItem("pkb.lastTab", name);
+  if (name === "capture") routeCapture(location.hash || "#capture");
+  else leaveCapture();
   if (name === "browse") loadBrowse();
   if (name === "review") loadReview();
   if (name === "entities") loadEntities();
@@ -151,7 +144,11 @@ async function loadStatus() {
 }
 
 for (const b of document.querySelectorAll("#tabs button")) {
-  b.addEventListener("click", () => showTab(b.dataset.tab));
+  b.addEventListener("click", () => {
+    const hash = "#" + b.dataset.tab;
+    if (location.hash === hash) showTab(b.dataset.tab);
+    else location.hash = hash;
+  });
 }
 $("q").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(doSearch, 300); });
 $("inc-sup").addEventListener("change", doSearch);
@@ -405,3 +402,31 @@ $("e-newtype").addEventListener("click", openNewType);
   $("tab-review-btn").hidden = !llmOn;
   refreshReviewCount();
 })();
+
+window.addEventListener("hashchange", () => {
+  const name = location.hash.slice(1).split("/")[0];
+  if (name === "capture") {
+    showTab("capture");
+  } else if (tabNames.has(name)) {
+    showTab(name);
+  } else if (/^#note\/[a-f0-9]{8,64}$/.test(location.hash)) {
+    showTab("browse");
+    openDetail(decodeURIComponent(location.hash.slice("#note/".length)));
+  } else if (/^#entity\/[a-f0-9]{8,64}$/.test(location.hash)) {
+    showTab("entities");
+    openEntity(decodeURIComponent(location.hash.slice("#entity/".length)));
+  } else {
+    showTab("capture");
+  }
+});
+
+initCapture();
+if (!location.hash) {
+  const requested = new URLSearchParams(location.search).get("tab");
+  const remembered = localStorage.getItem("pkb.lastTab");
+  location.hash = "#" + (requested || remembered || "capture");
+} else {
+  const name = location.hash.slice(1).split("/")[0];
+  if (tabNames.has(name)) showTab(name);
+  else showTab("capture");
+}

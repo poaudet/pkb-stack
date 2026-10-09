@@ -131,3 +131,23 @@
   container with the repository mounted, `EMBED_BACKEND=fake`, and `VECTOR_BACKEND=numpy` returned
   `/health` status `ok`; this validates runtime startup only, not the production baked model or
   Compose image.
+
+## UI capture E0-E1
+- UI §0 inventory, baseline test/Compose results, actual curl response shapes, and the §2 API gap
+  audit are recorded in `docs/UI_NOTES.md`. Existing API wrappers and IDs were retained.
+- E0 adds `pytest-playwright` and Playwright as dev-only dependencies to implement the specified
+  browser harness; no production dependency was added. Versions were checked against the GitHub
+  Advisory Database before installation (no advisories reported).
+- E0 fills the missing capture-list projection/filtering, add-properties apply override, dry-run
+  validation, and batched entity-label API. Existing API operations (including captured plan
+  normalization and apply checks) remain authoritative.
+- This change stops at E1: plan operations are displayed read-only; selection, field editing,
+  applying, undo UI, owner UI, and schema UI remain later sub-phases.
+- Verification after E1: `pytest -q` passed (75 passed, 1 skipped; 8 E2E tests excluded);
+  `pytest -q -m e2e` passed (8 passed); `ruff check .`, `git diff --check`, and post-change curl
+  checks passed.
+- Docker CLI was present. Both `docker compose build` and `scripts/smoke.sh` were attempted after
+  changes and failed at the existing `python -m hub.embeddings --download` step because the
+  sandbox could not resolve the Hugging Face host. Compose could not start, so the Compose smoke
+  API sequence was not run. The local Playwright E0/E1 suite did run successfully against the
+  fake-embedding Flask app and canned LLM.

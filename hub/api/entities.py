@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from flask import Blueprint, current_app, jsonify, request
 
 from .. import entities as svc
@@ -87,6 +89,36 @@ def list_():
 def query():
     data = _body()
     return _run(lambda h, c: jsonify(svc.query(c, data)))
+
+
+@bp.post("/api/entities/labels")
+def labels():
+    data = _body()
+    ids = data.get("ids")
+    if set(data) != {"ids"} or not isinstance(ids, list) or len(ids) > 100:
+        raise validation("ids must be an array of at most 100 entity ids")
+    if any(not isinstance(uid, str) for uid in ids):
+        raise validation("each entity id must be a string")
+
+    def get_labels(_hub, conn):
+        out = {}
+        for uid in ids:
+            row = conn.execute(
+                "SELECT e.type,e.data,t.unique_key FROM entities e "
+                "LEFT JOIN entity_types t ON t.name=e.type WHERE e.uid=?",
+                (uid,),
+            ).fetchone()
+            if row is None:
+                continue
+            entity_data = json.loads(row["data"])
+            key = row["unique_key"]
+            label = entity_data.get(key) if key else None
+            if label is None:
+                label = entity_data.get("name") or entity_data.get("title") or row["type"]
+            out[uid] = {"type": row["type"], "label": str(label)}
+        return jsonify({"labels": out})
+
+    return _run(get_labels)
 
 
 @bp.get("/api/entities/<uid>")

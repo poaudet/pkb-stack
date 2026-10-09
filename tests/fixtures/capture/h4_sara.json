@@ -1,0 +1,23 @@
+{
+  "match": "Went to Portland with Sara",
+  "response": {
+    "summary": "Portland trip with Sara",
+    "ops": [
+      {
+        "id": "event",
+        "op": "create_entity",
+        "type": "event",
+        "data": {
+          "date": "2026-10-03",
+          "title": "Portland trip",
+          "kind": "trip",
+          "location": "Portland",
+          "people": ["Sara"]
+        }
+      }
+    ],
+    "keep_note": false,
+    "note": null,
+    "questions": []
+  }
+}

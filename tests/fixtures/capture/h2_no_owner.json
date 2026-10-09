@@ -1,0 +1,18 @@
+{
+  "match": "I like kiwis",
+  "response": {
+    "summary": "Likes kiwis",
+    "ops": [
+      {
+        "id": "owner",
+        "op": "update_entity",
+        "target": "SELF",
+        "patch": {"interests": ["kiwis"]},
+        "why": "Record a preference"
+      }
+    ],
+    "keep_note": false,
+    "note": null,
+    "questions": []
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "match": "My favorite color is blue",
+  "response": {
+    "summary": "Favorite color: blue",
+    "ops": [
+      {
+        "id": "field",
+        "op": "extend_entity_type",
+        "type": "person",
+        "add_properties": {
+          "favorite_color": {"type": "string", "description": "Favorite color"}
+        },
+        "why": "No existing field holds this preference"
+      },
+      {
+        "id": "owner",
+        "op": "update_entity",
+        "target": "SELF",
+        "patch": {"favorite_color": "blue"},
+        "why": "Record an owner preference"
+      }
+    ],
+    "keep_note": false,
+    "note": null,
+    "questions": []
+  }
+}
