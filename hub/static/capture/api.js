@@ -72,6 +72,21 @@ function normalizeList(payload) {
   };
 }
 
+function normalizeValidation(payload) {
+  return {
+    ops: (payload.ops || []).map((op) => Object.assign({}, op, { id: String(op.id) })),
+    selection: payload.selection || { ok: true, missing: [] },
+  };
+}
+
+function normalizeSelf(payload) {
+  return {
+    self: payload.self || null,
+    configured: Boolean(payload.configured || payload.self),
+    conflicts: (payload.conflicts || []).map(String),
+  };
+}
+
 function pathFor(id, suffix = "") {
   return "/api/capture/" + encodeURIComponent(String(id)) + suffix;
 }
@@ -150,21 +165,21 @@ export const captureApi = {
     });
   },
   async validate(id, data = {}, options) {
-    return apiRequest(pathFor(id, "/validate"), {
+    return normalizeValidation(await apiRequest(pathFor(id, "/validate"), {
       method: "POST",
       body: JSON.stringify(data),
       signal: options && options.signal,
-    });
+    }));
   },
   async getSelf(options) {
-    return apiRequest("/api/self", options);
+    return normalizeSelf(await apiRequest("/api/self", options));
   },
   async putSelf(data, options) {
-    return apiRequest("/api/self", {
+    return normalizeSelf(await apiRequest("/api/self", {
       method: "PUT",
       body: JSON.stringify(data),
       signal: options && options.signal,
-    });
+    }));
   },
   async entityTypes(options) {
     return apiRequest("/api/entity-types", options);

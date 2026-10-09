@@ -1,0 +1,20 @@
+{
+  "match": "xss payload",
+  "response": {
+    "summary": "<img src=x onerror=window.__xss=1>",
+    "ops": [
+      {
+        "id": "untrusted",
+        "op": "create_entity",
+        "type": "person",
+        "data": {
+          "name": "<img src=x onerror=window.__xss=1>",
+          "relationship": "friend"
+        },
+        "why": "<script>window.__xss=1</script>"
+      }
+    ],
+    "keep_note": false,
+    "questions": []
+  }
+}

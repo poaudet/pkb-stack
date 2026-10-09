@@ -1,13 +1,19 @@
 "use strict";
-import { apiRequest } from "./capture/api.js";
+import { apiRequest, captureApi } from "./capture/api.js";
 import { initCapture, leaveCapture, routeCapture } from "./capture/page.js";
+import { confirmDialog } from "./capture/dialog.js";
+import { renderOwnerChip, renderOwnerForm } from "./owner.js";
+import { refreshTypes, renderTypeDetails } from "./types.js";
 
 const $ = (id) => document.getElementById(id);
 const tabNames = new Set(["capture", "search", "add", "review", "browse", "entities", "status"]);
 
 function el(tag, props, ...kids) {
   const e = document.createElement(tag);
-  Object.assign(e, props || {});
+  for (const [key, value] of Object.entries(props || {})) {
+    if (key.startsWith("aria-")) e.setAttribute(key, value);
+    else Object.assign(e, { [key]: value });
+  }
   for (const k of kids) e.append(k);
   return e;
 }
@@ -24,12 +30,14 @@ function showTab(name) {
     s.hidden = s.id !== "tab-" + name;
   }
   localStorage.setItem("pkb.lastTab", name);
+  let loading;
   if (name === "capture") routeCapture(location.hash || "#capture");
   else leaveCapture();
-  if (name === "browse") loadBrowse();
-  if (name === "review") loadReview();
-  if (name === "entities") loadEntities();
-  if (name === "status") loadStatus();
+  if (name === "browse") loading = loadBrowse();
+  if (name === "review") loading = loadReview();
+  if (name === "entities") loading = loadEntities();
+  if (name === "status") loading = loadStatus();
+  return loading;
 }
 
 function card(n, snippet) {
@@ -141,6 +149,22 @@ async function loadStatus() {
   } catch (e) {
     $("health").textContent = e.message;
   }
+  try {
+    const config = await captureApi.config();
+    $("status-capture-details").replaceChildren(
+      el("p", { textContent: `Model: ${config.model || "off"}` }),
+      el("p", { textContent: `Host: ${config.host || "not configured"} · ${config.local ? "local" : "remote"}` }),
+      el("p", { textContent: `Calls today: ${config.calls_today}/${config.daily_limit || "unlimited"}` }),
+      el("p", { textContent: `Resets at: ${config.resets_at || "not applicable"}` }),
+    );
+    $("status-skip-ai").checked = localStorage.getItem("pkb.capture.skip_ai") === "true";
+    $("status-skip-ai").onchange = () => {
+      localStorage.setItem("pkb.capture.skip_ai", String($("status-skip-ai").checked));
+    };
+  } catch (_error) {
+    $("status-capture-details").textContent = "Capture settings unavailable.";
+  }
+  await renderOwnerForm($("status-owner-form"), () => loadStatus());
 }
 
 for (const b of document.querySelectorAll("#tabs button")) {
@@ -153,6 +177,21 @@ for (const b of document.querySelectorAll("#tabs button")) {
 $("q").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(doSearch, 300); });
 $("inc-sup").addEventListener("change", doSearch);
 $("add-save").addEventListener("click", saveNote);
+$("add-to-capture").addEventListener("click", () => {
+  const text = $("add-content").value;
+  if (!text.trim()) {
+    $("add-msg").textContent = "Write some text first.";
+    return;
+  }
+  try {
+    const draft = JSON.parse(localStorage.getItem("pkb.capture.draft") || "{}");
+    draft.text = text;
+    localStorage.setItem("pkb.capture.draft", JSON.stringify(draft));
+    location.hash = "#capture";
+  } catch (_error) {
+    $("add-msg").textContent = "Capture draft storage is unavailable in this browser.";
+  }
+});
 $("b-status").addEventListener("change", loadBrowse);
 $("b-tag").addEventListener("input", loadBrowse);
 $("backup").addEventListener("click", async () => {
@@ -252,23 +291,50 @@ function summarize(data) {
   return Object.entries(data).map(([k, v]) => k + ": " + (typeof v === "object" ? JSON.stringify(v) : v)).join("; ");
 }
 
+async function runOwnerProtected(action) {
+  try {
+    return await action(false);
+  } catch (error) {
+    if (error.code !== "protected") throw error;
+    const confirmed = await confirmDialog(
+      "Protected owner record",
+      "This is your owner record. Capture can't file facts about you until you set a new one.",
+      "Force this action",
+    );
+    if (!confirmed) throw error;
+    return action(true);
+  }
+}
+
 async function openEntity(id) {
   const dlg = $("entity-dialog");
   const { entity } = await api("/api/entities/" + encodeURIComponent(id));
   dlg.replaceChildren();
   const msg = el("p", { className: "meta" });
   const act = async (fn) => {
-    try { await fn(); dlg.close(); loadEntities(); doSearch(); } catch (e) { msg.textContent = e.message; }
+    try {
+      await fn();
+      dlg.close();
+      loadEntities();
+      doSearch();
+      renderOwnerChip($("capture-owner"));
+      renderOwnerChip($("capture-owner-detail"));
+    } catch (e) { msg.textContent = e.message; }
   };
   const arch = el("button", { className: "secondary",
     textContent: entity.status === "archived" ? "Restore" : "Archive" });
-  arch.addEventListener("click", () => act(() => api("/api/entities/" + id + "/" +
-    (entity.status === "archived" ? "restore" : "archive"), { method: "POST", body: "{}" })));
+  arch.addEventListener("click", () => act(() => runOwnerProtected((force) => api(
+    "/api/entities/" + id + "/" + (entity.status === "archived" ? "restore" : "archive")
+      + (force ? "?force=true" : ""),
+    { method: "POST", body: "{}" },
+  ))));
   const del = el("button", { className: "danger", textContent: "Forget" });
   del.addEventListener("click", () => {
-    if (window.confirm("Permanently delete this record and all traces?")) {
-      act(() => api("/api/entities/" + id + "?confirm=true", { method: "DELETE" }));
-    }
+    confirmDialog("Forget entity", "Permanently delete this record and all traces?", "Forget")
+      .then((confirmed) => confirmed && act(() => runOwnerProtected((force) => api(
+        "/api/entities/" + id + "?confirm=true" + (force ? "&force=true" : ""),
+        { method: "DELETE" },
+      ))));
   });
   const close = el("button", { className: "secondary", textContent: "Close" });
   close.addEventListener("click", () => dlg.close());
@@ -282,10 +348,11 @@ let entityTypes = [];
 async function loadEntities() {
   const sel = $("e-type");
   try {
-    entityTypes = (await api("/api/entity-types")).types;
+    entityTypes = await refreshTypes();
     const cur = sel.value;
     sel.replaceChildren(...entityTypes.map((t) => el("option", { value: t.name, textContent: t.name + " (" + t.count + ")" })));
     if (cur) sel.value = cur;
+    renderTypeDetails(sel.value, $("e-type-details"));
     await loadEntityRows();
     const act = $("e-activity");
     act.replaceChildren();
@@ -389,7 +456,10 @@ function openNewType() {
   dlg.showModal();
 }
 
-$("e-type").addEventListener("change", () => loadEntityRows().catch((e) => { $("e-table").textContent = e.message; }));
+$("e-type").addEventListener("change", () => {
+  renderTypeDetails(sel_type(), $("e-type-details"));
+  loadEntityRows().catch((e) => { $("e-table").textContent = e.message; });
+});
 $("e-new").addEventListener("click", openNewEntity);
 $("e-newtype").addEventListener("click", openNewType);
 
@@ -407,6 +477,15 @@ window.addEventListener("hashchange", () => {
   const name = location.hash.slice(1).split("/")[0];
   if (name === "capture") {
     showTab("capture");
+  } else if (name === "types") {
+    const typeName = decodeURIComponent(location.hash.slice("#types/".length));
+    Promise.resolve(showTab("entities")).then(() => {
+      if (entityTypes.some((type) => type.name === typeName)) {
+        $("e-type").value = typeName;
+        renderTypeDetails(typeName, $("e-type-details"));
+        loadEntityRows();
+      }
+    });
   } else if (tabNames.has(name)) {
     showTab(name);
   } else if (/^#note\/[a-f0-9]{8,64}$/.test(location.hash)) {
@@ -428,5 +507,15 @@ if (!location.hash) {
 } else {
   const name = location.hash.slice(1).split("/")[0];
   if (tabNames.has(name)) showTab(name);
+  else if (name === "types") {
+    const typeName = decodeURIComponent(location.hash.slice("#types/".length));
+    Promise.resolve(showTab("entities")).then(() => {
+      if (entityTypes.some((type) => type.name === typeName)) {
+        $("e-type").value = typeName;
+        renderTypeDetails(typeName, $("e-type-details"));
+        loadEntityRows();
+      }
+    });
+  }
   else showTab("capture");
 }
