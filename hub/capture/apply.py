@@ -42,7 +42,6 @@ def _plan_input(stored: dict, body: dict) -> tuple[dict, dict[str, dict]]:
             "id", "op", "type", "name", "ref", "target", "data", "patch", "reason",
             "description", "json_schema", "text_template", "unique_key", "embed",
             "add_properties",
-            "add_properties",
         ) if key in op}
         raw_ops.append(raw)
     overrides = body.get("ops", [])
@@ -51,19 +50,31 @@ def _plan_input(stored: dict, body: dict) -> tuple[dict, dict[str, dict]]:
     for override in overrides:
         if not isinstance(override, dict) or not isinstance(override.get("id"), str):
             raise ApiError("validation_error", "each op override needs an id", 400)
-        if set(override) - {"id", "include", "data", "patch"}:
+        if set(override) - {"id", "include", "data", "patch", "add_properties"}:
             raise ApiError("validation_error", "unsupported op override field", 400)
         if "include" in override and not isinstance(override["include"], bool):
             raise ApiError("validation_error", "include must be a boolean", 400)
         if any(key in override and not isinstance(override[key], dict)
-               for key in ("data", "patch")):
-            raise ApiError("validation_error", "data and patch overrides must be objects", 400)
+               for key in ("data", "patch", "add_properties")):
+            raise ApiError(
+                "validation_error", "data, patch, and add_properties overrides must be objects",
+                400,
+            )
         if override["id"] not in updates:
             raise ApiError("validation_error", "unknown operation id", 400)
+        target = next(op for op in raw_ops if op.get("id") == override["id"])
+        allowed_for_kind = {
+            "create_entity": {"data"},
+            "supersede_entity": {"data"},
+            "update_entity": {"patch"},
+            "extend_entity_type": {"add_properties"},
+        }.get(target.get("op"), set())
+        if set(override) - {"id", "include"} - allowed_for_kind:
+            raise ApiError("validation_error", "override does not match operation kind", 400)
         updates[override["id"]].update(override)
     for op in raw_ops:
         override = updates.get(op.get("id"), {})
-        for key in ("data", "patch"):
+        for key in ("data", "patch", "add_properties"):
             if key in override:
                 op[key] = override[key]
     keep_note = body.get("keep_note", stored.get("keep_note", False))
@@ -379,6 +390,70 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
     for note_uid in mirrored_notes:
         notes._mirror(hub, conn, note_uid)
     return {"applied": applied, "skipped": skipped}
+
+
+def validate(hub, conn, uid: str, body: dict) -> dict:
+    capture_row = jobs._row(conn, uid)
+    if capture_row["state"] != "ready":
+        raise ApiError("capture_state", "capture must be ready before validation", 409)
+    if not isinstance(body, dict):
+        raise ApiError("validation_error", "JSON object body required", 400)
+    stored = json.loads(capture_row["plan"])
+    raw_plan, overrides = _plan_input(stored, body)
+    if "allow_new_types" in body and not isinstance(body["allow_new_types"], bool):
+        raise ApiError("validation_error", "allow_new_types must be a boolean", 400)
+    if set(body) - {"ops", "keep_note", "allow_new_types"}:
+        raise ApiError("validation_error", "unsupported validation field", 400)
+    raw_text = capture_row["raw_text"] or ""
+    candidates = context.build_candidates(
+        hub, conn, raw_text, hub.settings.capture_candidates
+    ) if raw_text else []
+    normalized = plan.normalize(
+        conn, raw_plan, raw_text, candidates,
+        max_ops=max(1, min(20, hub.settings.capture_max_ops)),
+        settings=hub.settings,
+    )
+    by_id = {op["id"]: op for op in normalized["ops"]}
+    for op_id, override in overrides.items():
+        if "include" in override:
+            by_id[op_id]["include"] = override["include"]
+
+    selected = [op for op in normalized["ops"] if op.get("include", True)]
+    selected_ids = {op["id"] for op in selected}
+    missing = [
+        {"op": op["id"], "requires": [required for required in op.get("requires", [])
+                                      if required not in selected_ids]}
+        for op in selected if any(required not in selected_ids for required in op.get("requires", []))
+    ]
+    disallowed_types = [
+        op for op in selected
+        if op["kind"] == "create_entity_type" and not body.get("allow_new_types", False)
+    ]
+    result_ops = []
+    for op in normalized["ops"]:
+        errors = list(op.get("errors", []))
+        if op in disallowed_types:
+            errors.append("allow_new_types is required")
+        result_ops.append({
+            "id": op["id"],
+            "status": "invalid" if errors else op["status"],
+            "errors": errors,
+            "warnings": op.get("warnings", []),
+            "diff": op.get("diff", []),
+            "requires": op.get("requires", []),
+            "label": op.get("label", ""),
+            "risk": op.get("risk"),
+        })
+    invalid_selected = any(
+        op.get("include", True) and op["status"] == "invalid" for op in normalized["ops"]
+    )
+    return {
+        "ops": result_ops,
+        "selection": {
+            "ok": not missing and not invalid_selected and not disallowed_types,
+            "missing": missing,
+        },
+    }
 
 
 def undo(hub, conn, uid: str, actor: str) -> dict:

@@ -67,7 +67,7 @@ def _created(result):
 def list_():
     limit, offset = _page()
     return _with_conn(lambda conn: jsonify(jobs.list_captures(
-        conn, request.args.get("state"), limit, offset)))
+        conn, request.args.get("state"), request.args.get("source"), limit, offset)))
 
 
 @bp.get("/api/capture/<uid>")
@@ -103,6 +103,15 @@ def apply(uid: str):
         raise validation("JSON object body required")
     return _with_conn(lambda conn: (jsonify(
         svc_apply.apply(_hub(), conn, uid, data, _actor())), 200))
+
+
+@bp.post("/api/capture/<uid>/validate")
+def validate(uid: str):
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        raise validation("JSON object body required")
+    return _with_conn(lambda conn: jsonify(
+        svc_apply.validate(_hub(), conn, uid, data)))
 
 
 @bp.post("/api/capture/<uid>/undo")

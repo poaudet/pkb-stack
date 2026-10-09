@@ -121,19 +121,41 @@ def detail(conn: sqlite3.Connection, uid: str) -> dict:
     return to_dict(_row(conn, uid))
 
 
-def list_captures(conn: sqlite3.Connection, state: str | None, limit: int,
+def list_captures(conn: sqlite3.Connection, state: str | None, source: str | None, limit: int,
                   offset: int) -> dict:
-    where, params = "", []
+    conditions = []
+    params: list[object] = []
     if state:
         if state not in STATES:
             raise validation("invalid state")
-        where, params = " WHERE state=?", [state]
+        conditions.append("state=?")
+        params.append(state)
+    if source:
+        conditions.append("source=?")
+        params.append(source)
+    where = " WHERE " + " AND ".join(conditions) if conditions else ""
     total = conn.execute(f"SELECT count(*) FROM captures{where}", params).fetchone()[0]
     rows = conn.execute(
         f"SELECT * FROM captures{where} ORDER BY id DESC LIMIT ? OFFSET ?",
         [*params, limit, offset],
     ).fetchall()
-    return {"items": [to_dict(row) for row in rows], "total": total}
+    items = [to_dict(row) for row in rows]
+    captures = []
+    for row, item in zip(rows, items, strict=True):
+        plan_data = item["plan"]
+        entry = {
+            "id": item["id"],
+            "state": item["state"],
+            "source": item["source"],
+            "created_at": item["created_at"],
+            "summary": plan_data.get("summary") or (item["text"] or "")[:80],
+            "model": item["llm_model"],
+            "op_count": len(plan_data.get("ops", [])),
+        }
+        if item["error"]:
+            entry["error"] = item["error"]
+        captures.append(entry)
+    return {"captures": captures, "items": items, "total": total}
 
 
 def reject(conn: sqlite3.Connection, uid: str, actor: str) -> dict:
