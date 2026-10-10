@@ -12,7 +12,7 @@ export function confirmDialog(title, message, confirmLabel = "Confirm", cancelLa
   cancel.type = "button";
   cancel.className = "secondary";
   cancel.textContent = cancelLabel;
-  dialog.append(heading, text, confirm, cancel);
+  dialog.append(heading, text, cancel, confirm);
   return new Promise((resolve) => {
     const finish = (value) => {
       dialog.removeEventListener("close", onClose);
@@ -24,8 +24,14 @@ export function confirmDialog(title, message, confirmLabel = "Confirm", cancelLa
       resolve(false);
     };
     dialog.addEventListener("close", onClose, { once: true });
-    confirm.addEventListener("click", () => finish(true), { once: true });
+    const openedAt = Date.now();
+    // Ignore the tail of the tap that opened the dialog (mobile ghost click).
+    confirm.addEventListener("click", (event) => {
+      if (Date.now() - openedAt < 500) { event.preventDefault(); return; }
+      finish(true);
+    });
     cancel.addEventListener("click", () => finish(false), { once: true });
     dialog.showModal();
+    cancel.focus();
   });
 }
