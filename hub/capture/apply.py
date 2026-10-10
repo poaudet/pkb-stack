@@ -34,6 +34,7 @@ def _resolve(value: object, refs: dict[str, str]) -> object:
 def _plan_input(stored: dict, body: dict) -> tuple[dict, dict[str, dict]]:
     updates: dict[str, dict] = {}
     raw_ops = []
+    note_ids = {op.get("id") for op in stored.get("ops", []) if op.get("kind") == "create_note"}
     for op in stored.get("ops", []):
         if op.get("kind") == "create_note":
             continue
@@ -60,6 +61,12 @@ def _plan_input(stored: dict, body: dict) -> tuple[dict, dict[str, dict]]:
                 "validation_error", "data, patch, and add_properties overrides must be objects",
                 400,
             )
+        if override["id"] in note_ids:
+            if set(override) - {"id", "include"}:
+                raise ApiError("validation_error", "override does not match operation kind", 400)
+            if override.get("include") is False:
+                body = {**body, "keep_note": False}
+            continue
         if override["id"] not in updates:
             raise ApiError("validation_error", "unknown operation id", 400)
         target = next(op for op in raw_ops if op.get("id") == override["id"])
