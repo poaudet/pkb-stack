@@ -69,6 +69,7 @@ dialog label { display:block; margin-top:8px; }
 .capture-gaps { margin:10px 0; }
 .capture-error-text { overflow-wrap:anywhere; }
 dialog button { min-height:44px; }
+.capture-action-bar button { touch-action:manipulation; min-height:44px; }
 @media (min-width:900px) {
   .capture-layout { grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); align-items:start; }
   .capture-submit-bar { position:static; }
@@ -77,7 +78,7 @@ dialog button { min-height:44px; }
   .capture-action-bar { position:sticky; }
 }
 @media (max-width:899px) {
-  .capture-action-bar { position:fixed; left:0; right:0; bottom:0; z-index:3; padding:8px 12px
+  .capture-action-bar { position:fixed; left:0; right:0; bottom:0; z-index:10; pointer-events:auto; padding:8px 12px
     max(8px, env(safe-area-inset-bottom)); background:var(--bg); }
   #capture-detail { padding-bottom:calc(130px + env(safe-area-inset-bottom)); }
   .capture-op { scroll-margin-bottom:140px; }
