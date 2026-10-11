@@ -27,3 +27,17 @@ def test_unknown_rejected(mk):
 def test_no_endpoints(mk):
     c = mk().test_client()
     assert c.get("/api/settings/llm").get_json()["endpoints"] == []
+
+
+def test_api_key_applied(tmp_path):
+    from hub import llm_endpoints
+    from hub.core import Hub
+    from tests.conftest import make_settings
+
+    hub = Hub(make_settings(tmp_path, llm_endpoints=EPS, embed_backend="fake"))
+    assert hub.llm_settings("tidy").llm_api_key == "secret-a"
+    assert hub.llm_settings("capture").capture_llm_api_key == "secret-a"
+    conn = hub.conn()
+    llm_endpoints.select(conn, hub.settings, "tidy", "b")
+    conn.close()
+    assert hub.llm_settings("tidy").llm_api_key == "not-needed"
