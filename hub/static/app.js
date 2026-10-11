@@ -6,7 +6,7 @@ import { renderOwnerChip, renderOwnerForm } from "./owner.js";
 import { refreshTypes, renderTypeDetails } from "./types.js";
 
 const $ = (id) => document.getElementById(id);
-const tabNames = new Set(["capture", "search", "add", "review", "browse", "entities", "status"]);
+const tabNames = new Set(["capture", "search", "add", "review", "browse", "entities", "settings", "status"]);
 
 function el(tag, props, ...kids) {
   const e = document.createElement(tag);
@@ -36,6 +36,7 @@ function showTab(name) {
   if (name === "browse") loading = loadBrowse();
   if (name === "review") loading = loadReview();
   if (name === "entities") loading = loadEntities();
+  if (name === "settings") loading = loadSettings();
   if (name === "status") loading = loadStatus();
   return loading;
 }
@@ -135,6 +136,34 @@ async function loadBrowse() {
     if (!res.items.length) list.append(el("p", { textContent: "No notes." }));
   } catch (e) {
     list.append(el("p", { textContent: e.message }));
+  }
+}
+
+async function loadSettings() {
+  const msg = $("settings-llm-msg");
+  msg.textContent = "";
+  try {
+    const s = await api("/api/settings/llm");
+    $("settings-llm-empty").hidden = s.endpoints.length > 0;
+    $("settings-llm-form").hidden = s.endpoints.length === 0;
+    for (const purpose of ["tidy", "capture"]) {
+      const sel = $("settings-" + purpose);
+      sel.replaceChildren(...s.endpoints.map((e) => el("option", {
+        value: e.name,
+        textContent: `${e.name} (${e.model}${e.host ? " @ " + e.host : ""})`,
+        selected: e.name === s.selected[purpose],
+      })));
+      sel.onchange = async () => {
+        try {
+          await api("/api/settings/llm", { method: "PUT", body: JSON.stringify({ [purpose]: sel.value }) });
+          msg.textContent = "Saved.";
+        } catch (e) {
+          msg.textContent = e.message;
+        }
+      };
+    }
+  } catch (e) {
+    msg.textContent = e.message;
   }
 }
 
