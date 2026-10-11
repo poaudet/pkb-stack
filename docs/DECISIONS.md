@@ -167,3 +167,9 @@
   unavailable in the sandbox. The Compose app did not start, so its API smoke sequence is unverified.
 - The physical-phone LAN check remains a manual verification for the operator; it cannot be
   performed from this sandbox.
+
+## Selectable LLM endpoints
+- `LLM_ENDPOINTS` (JSON array of `{name, base_url, model, api_key?}`) lists endpoints; the Settings
+  tab picks one for tidy-up and one for capture (stored in `meta`, default first entry). When unset,
+  the existing `LLM_*`/`CAPTURE_LLM_*` variables apply unchanged. API keys are never returned by
+  `/api/settings/llm`. No dependency added.

@@ -42,5 +42,17 @@ class Hub:
         if not settings.api_token:
             log.warning("API_TOKEN is empty: the API is unauthenticated. Set it before exposing.")
 
+    def llm_settings(self, purpose: str) -> Settings:
+        """Settings with the user-selected LLM endpoint applied for 'tidy' or 'capture'."""
+        from . import llm_endpoints
+
+        if not self.settings.llm_endpoints:
+            return self.settings
+        conn = self.conn()
+        try:
+            return llm_endpoints.effective(conn, self.settings, purpose)
+        finally:
+            conn.close()
+
     def conn(self) -> sqlite3.Connection:
         return db.connect(self.settings.db_path, load_vec=self.store.backend == "sqlite-vec")

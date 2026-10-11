@@ -26,7 +26,7 @@ def _now() -> str:
 
 
 def llm_configured(hub: Hub) -> bool:
-    return bool(hub.settings.llm_model)
+    return bool(hub.llm_settings("tidy").llm_model)
 
 
 def require_llm(hub: Hub) -> None:
@@ -240,19 +240,20 @@ class Queue:
             if n != 1:
                 return
             raw = _row(conn, uid)["raw_content"]
+            tidy_settings = hub.llm_settings("tidy")
             sug, err = None, None
             if len(raw) > hub.settings.llm_max_input_chars:
                 err = "too_long"
             else:
                 try:
-                    sug = llm.tidy(hub.settings, raw)
+                    sug = llm.tidy(tidy_settings, raw)
                 except llm.LLMError as e:
                     err = str(e)
             if sug is None:
                 conn.execute(
                     "UPDATE pending_notes SET state='failed', error=?, llm_model=? "
                     "WHERE uid=? AND state='processing'",
-                    (err, hub.settings.llm_model, uid))
+                    (err, tidy_settings.llm_model, uid))
                 return
             warnings = {"missing": llm.missing_facts(raw, f"{sug.title}\n{sug.content}")}
             conn.execute(
@@ -260,6 +261,6 @@ class Queue:
                 "happened_at=?, warnings=?, llm_model=? WHERE uid=? AND state='processing'",
                 (sug.title[:200] or notes.default_title(sug.content), sug.content,
                  json.dumps(sug.tags), sug.happened_at, json.dumps(warnings),
-                 hub.settings.llm_model, uid))
+                 tidy_settings.llm_model, uid))
         finally:
             conn.close()

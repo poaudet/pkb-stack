@@ -14,6 +14,7 @@
   <button data-tab="review" id="tab-review-btn" hidden>Review <span id="review-count"></span></button>
   <button data-tab="browse">Browse</button>
   <button data-tab="entities">Entities</button>
+  <button data-tab="settings">Settings</button>
   <button data-tab="status">Status</button>
 </nav>
 <main>
@@ -97,6 +98,17 @@
     <div id="e-table"></div>
     <h4>Recent activity</h4>
     <div id="e-activity"></div>
+  </section>
+  <section id="tab-settings" hidden>
+    <section class="card" aria-labelledby="settings-llm-title">
+      <h2 id="settings-llm-title">LLM endpoints</h2>
+      <p id="settings-llm-empty" hidden>No LLM_ENDPOINTS configured.</p>
+      <div id="settings-llm-form">
+        <label>Tidy-up note <select id="settings-tidy"></select></label>
+        <label>Capture <select id="settings-capture"></select></label>
+      </div>
+      <p id="settings-llm-msg" role="status"></p>
+    </section>
   </section>
   <section id="tab-status" hidden>
     <section id="status-capture" class="card" aria-labelledby="status-capture-title">

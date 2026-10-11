@@ -51,10 +51,10 @@ def health():
             "status": "needs_reindex" if hub.needs_reindex else "ok",
             "vector_backend": hub.store.backend,
             "embed_model": hub.embedder.model,
-            "llm": llm_info(hub.settings),
+            "llm": llm_info(hub.llm_settings("tidy")),
             "capture": {
                 "enabled": hub.settings.capture_enabled,
-                **_llm_info(hub.settings),
+                **_llm_info(hub.llm_settings("capture")),
             },
             "owner_configured": bool(conn.execute(
                 "SELECT 1 FROM meta WHERE key='self_uid'"

@@ -48,7 +48,7 @@ def config():
     hub = _hub()
     return _with_conn(lambda conn: jsonify({
         "enabled": hub.settings.capture_enabled,
-        **_llm_info(hub.settings),
+        **_llm_info(hub.llm_settings("capture")),
         "max_chars": hub.settings.capture_max_chars,
         "calls_today": gates.usage(conn),
         "daily_limit": hub.settings.capture_daily_call_limit,

@@ -76,7 +76,7 @@ def create(hub: Hub, conn: sqlite3.Connection, data: dict, actor: str) -> tuple[
         return {"note": note}, 201
     if not hub.settings.capture_enabled:
         raise ApiError("capture_disabled", "Smart Capture is disabled", 409)
-    if not configured(hub.settings):
+    if not configured(hub.llm_settings("capture")):
         raise ApiError("llm_not_configured", "Capture LLM is not configured", 409)
     digest = gates.gate(
         conn, hub.settings, text,
@@ -175,7 +175,7 @@ def reject(conn: sqlite3.Connection, uid: str, actor: str) -> dict:
 
 
 def regenerate(hub: Hub, conn: sqlite3.Connection, uid: str, data: dict) -> dict:
-    if not configured(hub.settings):
+    if not configured(hub.llm_settings("capture")):
         raise ApiError("llm_not_configured", "Capture LLM is not configured", 409)
     row = _row(conn, uid)
     if row["state"] not in EDITABLE:
@@ -231,7 +231,7 @@ class CaptureQueue:
             retention = max(0, self.hub.settings.capture_keep_raw_days)
             cutoff = (datetime.now(UTC) - timedelta(days=retention)).strftime("%Y-%m-%dT%H:%M:%SZ")
             conn.execute("UPDATE captures SET raw_text=NULL WHERE created_at<?", (cutoff,))
-            if not configured(self.hub.settings):
+            if not configured(self.hub.llm_settings("capture")):
                 return
             conn.execute("UPDATE captures SET state='queued' WHERE state='processing'")
             queued = [row["uid"] for row in conn.execute(
@@ -283,6 +283,7 @@ class CaptureQueue:
                     ZoneInfo(self.hub.settings.hub_timezone)
                 except ZoneInfoNotFoundError as exc:
                     raise ValueError("HUB_TIMEZONE must be a valid timezone") from exc
+                capture_settings = self.hub.llm_settings("capture")
                 catalog = context.build_catalog(
                     conn, self.hub.settings.capture_exclude_types,
                     self.hub.settings.capture_catalog_max_chars,
@@ -306,7 +307,7 @@ class CaptureQueue:
                 def request_plan(messages):
                     nonlocal last_result
                     result = llm.call(
-                        self.hub.settings, messages,
+                        capture_settings, messages,
                         lambda: gates.consume_call(conn, self.hub.settings),
                     )
                     last_result = result
