@@ -1,0 +1,42 @@
+name: knowledge-hub
+
+services:
+  hub:
+    build:
+      context: .
+      args:
+        EMBED_MODEL: ${EMBED_MODEL:-intfloat/multilingual-e5-small}
+    image: knowledge-hub:local
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PORT: "5000"
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${PORT:-5000}:5000"
+    volumes:
+      - hub_data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    image: knowledge-hub-mcp:local
+    restart: unless-stopped
+    depends_on:
+      - hub
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HUB_URL: http://hub:5000
+      API_TOKEN: ${API_TOKEN:-}
+      MCP_TRANSPORT: streamable-http
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${MCP_PORT:-8000}:8000"
+
+volumes:
+  hub_data:
