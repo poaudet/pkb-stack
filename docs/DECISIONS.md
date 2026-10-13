@@ -53,9 +53,11 @@
 - SKILL.md front matter (`name`, `description`) was not verified against agentskills.io: no network.
 
 ## Phase 4 (extras)
-- New dependency `mcp==2.3.0` (official MCP Python SDK), in `requirements-mcp.txt` only and
-  installed by `Dockerfile.mcp`; the hub image does not include it. `httpx`/`uvicorn` come with
-  it. mcp 2.x renamed FastMCP to MCPServer; the bridge uses the low-level `Server`
+- New dependencies `mcp==2.3.0` (official MCP Python SDK) and `httpx==0.28.1`, in
+  `requirements-mcp.txt` only and installed by `Dockerfile.mcp`; the hub image does not
+  include them. `mcp 2.3.0` pulled in `httpx2` rather than `httpx`, so `httpx==0.28.1` is explicitly
+  pinned in `requirements-mcp.txt` for `hub_mcp/server.py` HTTP client calls.
+  mcp 2.x renamed FastMCP to MCPServer; the bridge uses the low-level `Server`
   (`on_list_tools`/`on_call_tool`) so each tool's JSON schema from `/api/tools` is passed through.
   Calls are forwarded with `X-Actor: agent:mcp` (`MCP_ACTOR`). Transport via `MCP_TRANSPORT`.
 - `EMBED_BACKEND=openai` uses the existing `openai` package (`client.embeddings.create`); the

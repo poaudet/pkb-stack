@@ -13,3 +13,4 @@ jobs:
       - run: pytest -q
       - run: docker build -t knowledge-hub:ci .
       - run: docker build -f Dockerfile.mcp -t knowledge-hub-mcp:ci .
+      - run: docker run --rm knowledge-hub-mcp:ci python -c "import hub_mcp, httpx"

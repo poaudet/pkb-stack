@@ -128,12 +128,14 @@ def test_mcp_bridge(app):
             names = {t.name for t in (await sess.list_tools()).tools}
             res = await sess.call_tool("search_knowledge", {"q": "anything"})
             bad = await sess.call_tool("no_such_tool", {})
-            return names, res, bad
+            bad_args = await sess.call_tool("create_note", {})
+            return names, res, bad, bad_args
 
     try:
-        names, res, bad = anyio.run(go)
+        names, res, bad, bad_args = anyio.run(go)
     finally:
         srv.shutdown()
-    assert {"search_knowledge", "create_note"} <= names
+    assert {"search_knowledge", "create_note", "get_self"} <= names
     assert not res.is_error and isinstance(json.loads(res.content[0].text), (dict, list))
     assert bad.is_error
+    assert bad_args.is_error
