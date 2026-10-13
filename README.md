@@ -42,34 +42,26 @@ Review `.env` to set your desired options. If you expose the Hub beyond localhos
 
 ### 2. Launching Services (Docker Compose)
 
-The repository provides focused Docker Compose configurations depending on your setup needs:
+The repository provides focused Docker Compose configurations (using prebuilt `ghcr.io/poaudet/pkb-stack/{hub,mcp}:latest` images, no profiles) depending on your setup needs:
 
 #### Option 1: Knowledge Hub Only
 To run only the Knowledge Hub service:
 
 ```bash
-docker compose -f docker-compose.hub.yml up -d --build
+docker compose -f docker-compose.hub.yml up -d
 ```
 
 #### Option 2: Knowledge Hub + MCP Bridge (Automatic Dependency)
 To run both the Knowledge Hub and the Model Context Protocol (MCP) server together—where the MCP service automatically starts and depends on the Hub without requiring profiles:
 
 ```bash
-docker compose -f docker-compose.hub-mcp.yml up -d --build
+docker compose -f docker-compose.hub-mcp.yml up -d
 # Or equivalently:
-docker compose -f docker-compose.mcp.yml up -d --build
+docker compose -f docker-compose.mcp.yml up -d
 ```
 
-#### Option 3: Full Stack with Optional Profiles
-You can also use the default `docker-compose.yml` file, which includes optional profiles for MCP, local LLMs, and automated backups:
-
-```bash
-# Start just the hub:
-docker compose up -d --build
-
-# Start the hub and MCP bridge:
-docker compose --profile mcp up -d --build
-```
+#### Default
+`docker compose up -d` uses `docker-compose.yml` (hub only, same as Option 1).
 
 Open the Web UI:
 ```bash

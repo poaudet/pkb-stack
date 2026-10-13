@@ -2,11 +2,7 @@ name: knowledge-hub
 
 services:
   hub:
-    build:
-      context: .
-      args:
-        EMBED_MODEL: ${EMBED_MODEL:-intfloat/multilingual-e5-small}
-    image: knowledge-hub:local
+    image: ghcr.io/poaudet/pkb-stack/hub:latest
     restart: unless-stopped
     env_file:
       - path: .env
