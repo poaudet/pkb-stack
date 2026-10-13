@@ -1,11 +1,7 @@
 name: knowledge-hub
 services:
   hub:
-    build:
-      context: .
-      args:
-        EMBED_MODEL: ${EMBED_MODEL:-intfloat/multilingual-e5-small}
-    image: knowledge-hub:local
+    image: ghcr.io/poaudet/pkb-stack/hub:latest
     restart: unless-stopped
     env_file:
       - path: .env
@@ -19,54 +15,5 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  mcp:
-    profiles: ["mcp"]
-    build:
-      context: .
-      dockerfile: Dockerfile.mcp
-    image: knowledge-hub-mcp:local
-    restart: unless-stopped
-    depends_on:
-      - hub
-    environment:
-      HUB_URL: http://hub:5000
-      API_TOKEN: ${API_TOKEN:-}
-      MCP_TRANSPORT: streamable-http
-    ports:
-      - "${BIND_ADDR:-127.0.0.1}:${MCP_PORT:-8000}:8000"
-
-  ollama:
-    profiles: ["local-llm"]
-    image: ollama/ollama:latest
-    restart: unless-stopped
-    volumes:
-      - ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-
-  backup:
-    profiles: ["backup"]
-    image: rclone/rclone:latest
-    restart: unless-stopped
-    entrypoint: sh
-    command:
-      - -c
-      - >-
-        while true; do
-        rclone sync /data/notes "$${RCLONE_REMOTE}/notes" --create-empty-src-dirs;
-        rclone sync /data/backups "$${RCLONE_REMOTE}/backups";
-        sleep 900; done
-    environment:
-      RCLONE_REMOTE: ${RCLONE_REMOTE:-protondrive:KnowledgeHub}
-    volumes:
-      - hub_data:/data:ro
-      - rclone_config:/config/rclone
-
 volumes:
   hub_data:
-  ollama_data:
-  rclone_config:
