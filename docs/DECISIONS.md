@@ -175,3 +175,14 @@
   tab picks one for tidy-up and one for capture (stored in `meta`, default first entry). When unset,
   the existing `LLM_*`/`CAPTURE_LLM_*` variables apply unchanged. API keys are never returned by
   `/api/settings/llm`. No dependency added.
+
+## Dedicated Docker Compose configurations
+- Added `docker-compose.hub.yml` containing only the `hub` service and persistent data volume for
+  standalone Hub deployments without auxiliary profiles.
+- Added `docker-compose.hub-mcp.yml` and `docker-compose.mcp.yml` containing both `hub` and `mcp`
+  services, where `mcp` directly depends on `hub` (`depends_on: - hub`) and starts automatically
+  without requiring the `mcp` compose profile.
+- Maintained the existing `docker-compose.yml` with optional profiles for full-stack deployments
+  (`mcp`, `local-llm`, `backup`).
+- No new dependencies added.
+
