@@ -41,7 +41,6 @@ jobs:
         with:
           images: |
             ghcr.io/${{ github.repository }}/hub
-            ghcr.io/${{ github.repository }}-hub
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -86,7 +85,6 @@ jobs:
         with:
           images: |
             ghcr.io/${{ github.repository }}/mcp
-            ghcr.io/${{ github.repository }}-mcp
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
