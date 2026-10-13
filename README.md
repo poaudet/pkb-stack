@@ -1,6 +1,6 @@
 # Personal Knowledge Hub (`pkb-stack`)
 
-A self-hosted, privacy-first personal knowledge base with hybrid search, structured entity tracking, and native Model Context Protocol (MCP) support for AI agents.
+A self-hosted, privacy-first intended (all depends on which provider you use) personal knowledge base with hybrid search, structured entity tracking, and native Model Context Protocol (MCP) support for AI agents.
 
 [![CI](https://github.com/poaudet/pkb-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/poaudet/pkb-stack/actions/workflows/ci.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
