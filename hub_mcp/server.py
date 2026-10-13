@@ -39,7 +39,8 @@ def build_server(client: httpx.AsyncClient, manifest: list[dict], actor: str) ->
             body = r.json()
         except ValueError:
             return _result(f"hub returned HTTP {r.status_code}", True)
-        return _result(json.dumps(body, ensure_ascii=False), r.status_code >= 400)
+        is_err = r.status_code >= 400 or (isinstance(body, dict) and body.get("ok") is False)
+        return _result(json.dumps(body, ensure_ascii=False), is_err)
 
     return Server("knowledge-hub", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
 

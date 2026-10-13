@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Knowledge Hub runtime data and sqlite databases
+data/
+*.db
+*.db-shm
+*.db-wal
+
