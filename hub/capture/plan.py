@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import re
 from datetime import date, datetime
 
@@ -13,6 +14,18 @@ from .. import self as self_svc
 from ..db import fold
 from ..errors import ApiError
 from ..policy import capture_excluded_types
+from . import names, rules
+
+log = logging.getLogger(__name__)
+
+
+class OpReject(ValueError):
+    """An operation is refused with a machine-readable code and a human message."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 ALLOWED = {
     "create_entity", "update_entity", "supersede_entity", "create_entity_type",
@@ -20,7 +33,7 @@ ALLOWED = {
 }
 SERVER_ONLY = {
     "include", "status", "errors", "warnings", "diff", "label", "risk", "requires",
-    "gap", "source_gap",
+    "gap", "source_gap", "reject_reason", "reject_message", "error_code",
 }
 SELF_STOPLIST = {"i", "me", "myself", "moi", "je", "self", "owner", "user", "mon", "ma"}
 REF_STOPLIST = {
@@ -143,6 +156,26 @@ def _replace_ref_values(value: object, aliases: dict[str, str]) -> object:
     if isinstance(value, list):
         return [_replace_ref_values(item, aliases) for item in value]
     return value
+
+
+def _inline_refs(value: object, literal: dict[str, str]) -> object:
+    if not literal:
+        return value
+    if isinstance(value, dict):
+        if set(value) == {"$ref"} and value["$ref"] in literal:
+            return literal[value["$ref"]]
+        return {key: _inline_refs(item, literal) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_inline_refs(item, literal) for item in value]
+    return value
+
+
+def _reject_id_names(type_name: object, values: object) -> None:
+    if not names.is_named_type(type_name) or not isinstance(values, dict):
+        return
+    for key in ("name", "title"):
+        if names.is_id_name(values.get(key)):
+            raise OpReject("name_is_id", "A name must not be an identifier.")
 
 
 def _validation_view(value: object) -> object:
@@ -452,8 +485,21 @@ def assert_no_excluded_operations(conn, raw_plan: dict, settings=None) -> None:
         raise ApiError("type_excluded", "capture operation targets an excluded type", 409)
 
 
+def with_target_candidates(candidates: list[dict], raw_ops: list) -> list[dict]:
+    """Add already-validated update/supersede targets to the candidate set."""
+    known = {item.get("id") for item in candidates}
+    extra = []
+    for op in raw_ops:
+        target = op.get("target") if isinstance(op, dict) else None
+        if isinstance(target, str) and target not in known and target.casefold() != "self":
+            known.add(target)
+            extra.append({"id": target})
+    return [*candidates, *extra]
+
+
 def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
-              max_ops: int = 20, settings=None) -> dict:
+              max_ops: int = 20, settings=None,
+              known_refs: dict[str, str] | None = None, note_first: bool = False) -> dict:
     if not isinstance(raw_plan, dict):
         raise TypeError("plan must be a JSON object")
     raw_ops = raw_plan.get("ops")
@@ -466,7 +512,8 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
 
     all_types = _type_map(conn)
     proposed: dict[str, dict] = {}
-    aliases: dict[str, str] = {}
+    aliases: dict[str, str] = dict(known_refs or {})
+    literal_refs: dict[str, str] = {}
     out: list[dict] = []
     warnings: list[str] = []
     questions = raw_plan.get("questions", [])
@@ -560,9 +607,11 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
         if _is_excluded_operation(conn, raw_op, excluded_types, owner_uid):
             warnings.append("type_excluded")
             continue
+        raw_op, type_reject = rules.map_type(raw_op, all_types)
 
         forced_error = None
         converted_self = False
+        self_alias = False
         if kind == "create_entity" and raw_op.get("type") == "person":
             person_data = raw_op.get("data")
             if isinstance(person_data, dict):
@@ -582,6 +631,7 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                         }
                         kind = "update_entity"
                         converted_self = True
+                        self_alias = True
         if kind in ("update_entity", "supersede_entity"):
             target_uid = raw_op.get("target")
             is_self_target = isinstance(target_uid, str) and (
@@ -591,6 +641,7 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                 if owner is None:
                     forced_error = "self_not_set"
                 else:
+                    self_alias = target_uid.casefold() == "self"
                     raw_op["target"] = owner["id"]
 
         op = _op_base(raw_op, index)
@@ -607,11 +658,15 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
             op["warnings"].append("converted to owner update")
 
         try:
+            if type_reject:
+                raise OpReject(*type_reject)
             if forced_error:
                 if forced_error == "self_not_set":
                     op["status"] = "invalid"
                     op["errors"] = ["self_not_set"]
                     op["error_code"] = "self_not_set"
+                    op["reject_reason"] = "self_not_set"
+                    op["reject_message"] = "The owner's name is not set yet."
                     op["include"] = False
                     if not plan_gaps:
                         plan_gaps.append({"kind": "self", "action": "set_owner"})
@@ -696,6 +751,7 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                     info = all_types.get(type_name) or proposed.get(type_name)
                     if info is None:
                         raise ValueError("unknown entity type")
+                    _reject_id_names(type_name, raw_op.get("data"))
                     data, dropped = _clean_data(raw_op.get("data"), _type_schema(info))
                     op["warnings"].extend(dropped)
                     data, ref_warnings, ref_questions, ambiguous = _resolve_database_refs(
@@ -707,6 +763,7 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                         conn, op, data, _type_schema(info), aliases, all_types, ref_gaps,
                         settings, ambiguous,
                     )
+                    data = _inline_refs(data, literal_refs)
                     op["data"] = data
                     ref_errors = [ref for ref in _walk_refs(data) if ref not in aliases]
                     if ref_errors:
@@ -718,6 +775,23 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                     if errors:
                         raise ValueError("; ".join(errors[:5]))
                     duplicate = _find_unique(conn, info, data) if type_name in all_types else None
+                    label = next((data[key] for key in ("name", "title")
+                                  if isinstance(data.get(key), str)), None)
+                    if not duplicate and label and names.is_named_type(type_name):
+                        match = next((item for item in candidates
+                                      if item.get("type") == type_name
+                                      and names.norm_name(item.get("label"))
+                                      == names.norm_name(label)), None)
+                        if match:
+                            extras = {k: v for k, v in data.items() if k not in ("name", "title")}
+                            if not extras:
+                                if isinstance(raw_op.get("ref"), str) and raw_op["ref"]:
+                                    literal_refs[raw_op["ref"]] = match["id"]
+                                raise OpReject(
+                                    "duplicate_candidate",
+                                    "This matches an existing record; the existing one is used.")
+                            duplicate = match["id"]
+                            data = extras
                     if duplicate:
                         op["kind"] = "update_entity"
                         op["op"] = "update_entity"
@@ -729,6 +803,7 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                         reference = raw_op.get("ref")
                         if isinstance(reference, str) and reference:
                             aliases[reference] = duplicate
+                            literal_refs[reference] = duplicate
                         kind = "update_entity"
                     else:
                         reference = raw_op.get("ref")
@@ -745,12 +820,26 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                     info = all_types.get(target["type"])
                     if info is None:
                         raise ValueError("target entity type does not exist")
-                    if not any(candidate.get("id") == uid for candidate in candidates):
-                        op["warnings"].append("target was not in candidate context")
+                    is_owner = uid == (owner or {}).get("id")
+                    if is_owner and (
+                        not self_alias
+                        or rules.has_financial(raw_op.get("patch"), raw_op.get("data"))
+                    ):
+                        raise OpReject(
+                            "owner_record_protected",
+                            "Financial or contact details about the owner are never written "
+                            "to a record; keep them in a note.")
+                    if op["status"] != "converted" and not is_owner and not any(
+                        candidate.get("id") == uid for candidate in candidates
+                    ):
+                        raise OpReject(
+                            "target_not_candidate",
+                            "The target is not one of the candidate records.")
                     op["type"] = target["type"]
                     op["target"] = uid
                     if kind == "update_entity":
                         patch_input = op.get("patch") if op["status"] == "converted" else raw_op.get("patch")
+                        _reject_id_names(target["type"], patch_input)
                         patch, dropped = _clean_data(patch_input, _type_schema(info))
                         op["warnings"].extend(dropped)
                         patch, ref_warnings, ref_questions, ambiguous = _resolve_database_refs(
@@ -762,6 +851,7 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                             conn, op, patch, _type_schema(info), aliases, all_types, ref_gaps,
                             settings, ambiguous,
                         )
+                        patch = _inline_refs(patch, literal_refs)
                         ref_errors = [ref for ref in _walk_refs(patch) if ref not in aliases]
                         if ref_errors:
                             raise ValueError("reference must name an earlier create op")
@@ -778,9 +868,10 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                             f"{entities.entity_title(target['type'], target['data'])}"
                         )
                         if not op["diff"]:
-                            warnings.append(f"{op['id']}: already recorded")
+                            log.info("capture op already recorded: %s", op["id"])
                             continue
                     else:
+                        _reject_id_names(target["type"], raw_op.get("data"))
                         data, dropped = _clean_data(raw_op.get("data"), _type_schema(info))
                         op["warnings"].extend(dropped)
                         data, ref_warnings, ref_questions, ambiguous = _resolve_database_refs(
@@ -792,6 +883,7 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                             conn, op, data, _type_schema(info), aliases, all_types, ref_gaps,
                             settings, ambiguous,
                         )
+                        data = _inline_refs(data, literal_refs)
                         ref_errors = [ref for ref in _walk_refs(data) if ref not in aliases]
                         if ref_errors:
                             raise ValueError("reference must name an earlier create op")
@@ -812,9 +904,19 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
             if any(warning.startswith("overwrites_text:") for warning in op["warnings"]):
                 op["include"] = False
             out.append(op)
+        except OpReject as exc:
+            op["status"] = "rejected"
+            op["errors"] = [exc.message]
+            op["reject_reason"] = exc.code
+            op["reject_message"] = exc.message
+            op["include"] = False
+            op["label"] = str(op.get("label") or kind)[:140]
+            out.append(op)
         except Exception as exc:  # noqa: BLE001 - malformed ops remain reviewable
             op["status"] = "invalid"
             op["errors"] = [_error_text(exc)]
+            op["reject_reason"] = "invalid_op"
+            op["reject_message"] = _error_text(exc)
             op["include"] = False
             op["label"] = str(op.get("label") or kind)[:140]
             out.append(op)
@@ -827,7 +929,7 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
         if item.get("ref"):
             id_by_reference[item["ref"]] = item["id"]
     for item in out:
-        if item.get("status") == "invalid":
+        if item.get("status") in ("invalid", "rejected"):
             continue
         dependencies = set(item.get("requires", []))
         for reference in _walk_refs(item.get("data", item.get("patch", {}))):
@@ -885,6 +987,8 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
         ordered.append(item)
         done.add(item["id"])
         remaining.remove(item)
+    if note_first:
+        ordered.sort(key=lambda item: item["kind"] != "create_note")
     if not ordered and not questions:
         warnings.append("nothing to record")
     summary = raw_plan.get("summary", "")
@@ -901,7 +1005,8 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
     }
 
 
-def validate(raw_plan: dict) -> None:
+def plan_schema() -> dict:
+    """JSON schema of a model plan; used for structured output and for validation."""
     op_schema = {
         "type": "object",
         "required": ["id", "op"],
@@ -936,7 +1041,7 @@ def validate(raw_plan: dict) -> None:
             },
         },
     }
-    schema = {
+    return {
         "type": "object",
         "required": ["ops"],
         "properties": {
@@ -952,7 +1057,10 @@ def validate(raw_plan: dict) -> None:
             "ops": {"type": "array", "maxItems": 20, "items": op_schema},
         },
     }
-    errors = sorted(Draft202012Validator(schema).iter_errors(raw_plan),
+
+
+def validate(raw_plan: dict) -> None:
+    errors = sorted(Draft202012Validator(plan_schema()).iter_errors(raw_plan),
                     key=lambda error: list(map(str, error.path)))
     if errors:
         raise ValueError("; ".join(error.message for error in errors[:5]))

@@ -136,6 +136,22 @@ export const captureApi = {
       signal: options && options.signal,
     }));
   },
+  async cancel(id, options) {
+    return normalizeCaptureResponse(await apiRequest(pathFor(id, "/cancel"), {
+      method: "POST", body: "{}", signal: options && options.signal,
+    }));
+  },
+  async continuePartial(id, options) {
+    return normalizeCaptureResponse(await apiRequest(pathFor(id, "/continue"), {
+      method: "POST", body: "{}", signal: options && options.signal,
+    }));
+  },
+  async retryChunk(id, idx, options) {
+    return normalizeCaptureResponse(await apiRequest(
+      pathFor(id, "/chunks/" + encodeURIComponent(String(idx)) + "/retry"),
+      { method: "POST", body: "{}", signal: options && options.signal },
+    ));
+  },
   async reject(id, options) {
     return normalizeCaptureResponse(await apiRequest(pathFor(id, "/reject"), {
       method: "POST",

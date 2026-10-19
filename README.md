@@ -184,6 +184,13 @@ Key variables defined in `.env.example`:
 | `MCP_PORT` | `8000` | Port for MCP Streamable HTTP service. |
 | `CAPTURE_ENABLED` | `true` | Enable Smart Capture pipeline for automated entity extraction. |
 | `CAPTURE_EXCLUDE_TYPES` | `place_visit,task,grocery_list,grocery_item,plainlist_settings` | Exclude application-owned records from Capture. |
+| `CAPTURE_LONG_MODE` | `auto` | `auto` switches to chunked long capture above `CAPTURE_LONG_THRESHOLD_CHARS`; `off` disables it. |
+| `CAPTURE_LONG_THRESHOLD_CHARS` | `4000` | Text longer than this uses long capture in `auto` mode. |
+| `CAPTURE_LONG_MAX_CHARS` | `60000` | Longest accepted long capture; above it the API returns 413 `too_large` with the limit. |
+| `CAPTURE_CHUNK_TARGET_CHARS` | `3000` | Target chunk size (a sentence is never cut). |
+| `CAPTURE_CHUNK_OVERLAP_CHARS` | `300` | Previous-paragraph context repeated at the start of the next chunk. |
+| `CAPTURE_LONG_MAX_CHUNKS` | `24` | Most chunks one job may have. |
+| `CAPTURE_LONG_CONCURRENCY` | `1` | Chunks run one after another; reserved for future use. |
 | `TOOLS_ALLOW_EXTEND` | `true` | Allow agents to propose additive entity-type fields. |
 | `LLM_MODEL` | _empty_ | Model name for AI note tidy-up and entity extraction. |
 

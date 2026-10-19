@@ -26,9 +26,16 @@
           <p id="capture-privacy" class="capture-privacy" aria-live="polite">Loading AI settings…</p>
           <div id="capture-owner"></div>
           <label for="capture-text">What would you like to remember?</label>
-          <textarea id="capture-text" rows="6" maxlength="8000" autocapitalize="sentences"
+          <textarea id="capture-text" rows="6" maxlength="60000" autocapitalize="sentences"
             spellcheck="true" enterkeyhint="send"></textarea>
           <p id="capture-count" class="meta" aria-live="polite">0/8000</p>
+          <p id="capture-long-hint" class="meta" aria-live="polite" hidden></p>
+          <label for="capture-mode">Capture mode</label>
+          <select id="capture-mode">
+            <option value="auto">Automatic</option>
+            <option value="short">Force short</option>
+            <option value="long">Force long</option>
+          </select>
           <details>
             <summary>Add context</summary>
             <label for="capture-hint">Context</label>

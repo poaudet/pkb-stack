@@ -41,6 +41,7 @@ class Stub:
         self.reply = json.dumps(G1)
         self.replies = []
         self.reject_format = False
+        self.responder = None
         self.calls = []
         stub = self
 
@@ -53,7 +54,12 @@ class Stub:
                 stub.calls.append(request_body)
                 if stub.reject_format and "response_format" in request_body:
                     return self.send_json(400, {"error": {"message": "unsupported"}})
-                reply = stub.replies.pop(0) if stub.replies else stub.reply
+                if stub.responder:
+                    status, reply, headers = stub.responder(request_body)
+                    if status != 200:
+                        return self.send_json(status, {"error": {"message": "stub"}}, headers)
+                else:
+                    reply = stub.replies.pop(0) if stub.replies else stub.reply
                 self.send_json(200, {
                     "id": "stub", "object": "chat.completion", "created": 0,
                     "model": "stub", "choices": [{
@@ -63,9 +69,11 @@ class Stub:
                     "usage": {"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19},
                 })
 
-            def send_json(self, status, value):
+            def send_json(self, status, value, headers=None):
                 content = json.dumps(value).encode()
                 self.send_response(status)
+                for key, item in (headers or {}).items():
+                    self.send_header(key, item)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(content)))
                 self.end_headers()
@@ -146,7 +154,7 @@ def test_fold_and_capture_schema_migration(tmp_path):
             "SELECT name FROM sqlite_master WHERE type='table'"
         )}
         assert {"captures", "capture_ops", "capture_usage"} <= tables
-        assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "6"
+        assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "8"
         indexes = {row[0] for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index'"
         )}
@@ -261,14 +269,15 @@ def test_json_mode_fallback_and_single_repair(tmp_path, stub):
     uid = submit(client)
     capture = wait_capture(client, uid)
     assert capture["state"] == "ready"
-    assert len(stub.calls) == 4
-    assert "response_format" in stub.calls[0]
-    assert "response_format" not in stub.calls[1]
-    assert "response_format" in stub.calls[2]
-    assert "response_format" not in stub.calls[3]
-    assert "Return the corrected JSON object only" in stub.calls[3]["messages"][-1]["content"]
+    assert len(stub.calls) == 6
+    assert stub.calls[0]["response_format"]["type"] == "json_schema"
+    assert stub.calls[1]["response_format"]["type"] == "json_object"
+    assert "response_format" not in stub.calls[2]
+    assert "response_format" in stub.calls[3]
+    assert "response_format" not in stub.calls[5]
+    assert "Return the corrected JSON object only" in stub.calls[5]["messages"][-1]["content"]
     config = client.get("/api/capture/config").get_json()
-    assert config["calls_today"] == 4 and config["local"] is True
+    assert config["calls_today"] == 6 and config["local"] is True
 
 
 def test_capture_gates_duplicate_save_note_and_skip_ai(tmp_path, stub):

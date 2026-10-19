@@ -71,6 +71,13 @@ class Settings:
     capture_gap_max: int = 8
     capture_gap_default_include: bool = True
     capture_catalog_max_chars: int = 5000
+    capture_long_mode: str = "auto"
+    capture_long_threshold_chars: int = 4000
+    capture_long_max_chars: int = 60000
+    capture_chunk_target_chars: int = 3000
+    capture_chunk_overlap_chars: int = 300
+    capture_long_max_chunks: int = 24
+    capture_long_concurrency: int = 1
 
     @property
     def db_path(self) -> str:
@@ -125,4 +132,11 @@ class Settings:
             capture_gap_max=_int("CAPTURE_GAP_MAX", 8),
             capture_gap_default_include=_bool("CAPTURE_GAP_DEFAULT_INCLUDE", True),
             capture_catalog_max_chars=_int("CAPTURE_CATALOG_MAX_CHARS", 5000),
+            capture_long_mode=_str("CAPTURE_LONG_MODE", "auto").lower(),
+            capture_long_threshold_chars=_int("CAPTURE_LONG_THRESHOLD_CHARS", 4000),
+            capture_long_max_chars=_int("CAPTURE_LONG_MAX_CHARS", 60000),
+            capture_chunk_target_chars=_int("CAPTURE_CHUNK_TARGET_CHARS", 3000),
+            capture_chunk_overlap_chars=_int("CAPTURE_CHUNK_OVERLAP_CHARS", 300),
+            capture_long_max_chunks=_int("CAPTURE_LONG_MAX_CHUNKS", 24),
+            capture_long_concurrency=_int("CAPTURE_LONG_CONCURRENCY", 1),
         )

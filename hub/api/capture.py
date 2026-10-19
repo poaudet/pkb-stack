@@ -50,6 +50,10 @@ def config():
         "enabled": hub.settings.capture_enabled,
         **_llm_info(hub.llm_settings("capture")),
         "max_chars": hub.settings.capture_max_chars,
+        "long_mode": hub.settings.capture_long_mode,
+        "long_threshold_chars": hub.settings.capture_long_threshold_chars,
+        "long_max_chars": hub.settings.capture_long_max_chars,
+        "chunk_target_chars": hub.settings.capture_chunk_target_chars,
         "calls_today": gates.usage(conn),
         "daily_limit": hub.settings.capture_daily_call_limit,
         "resets_at": gates.resets_at(),
@@ -122,3 +126,21 @@ def validate(uid: str):
 def undo(uid: str):
     return _with_conn(lambda conn: jsonify(
         svc_apply.undo(_hub(), conn, uid, _actor())))
+
+
+@bp.post("/api/capture/<uid>/cancel")
+def cancel(uid: str):
+    return _with_conn(lambda conn: jsonify(
+        {"capture": jobs.cancel(conn, uid, _actor())}))
+
+
+@bp.post("/api/capture/<uid>/continue")
+def continue_partial(uid: str):
+    return _with_conn(lambda conn: jsonify(
+        {"capture": jobs.continue_partial(_hub(), conn, uid, _actor())}))
+
+
+@bp.post("/api/capture/<uid>/chunks/<int:idx>/retry")
+def retry_chunk(uid: str, idx: int):
+    return _with_conn(lambda conn: (jsonify(
+        {"capture": jobs.retry_chunk(_hub(), conn, uid, idx, _actor())}), 202))
