@@ -59,7 +59,7 @@ class Settings:
     capture_max_chars: int = 8000
     capture_max_ops: int = 20
     capture_candidates: int = 25
-    capture_exclude_types: str = "place_visit,task,grocery_list,grocery_item,plainlist_settings"
+    capture_exclude_types: str = ""
     capture_block_secrets: bool = True
     capture_daily_call_limit: int = 60
     capture_keep_raw_days: int = 30
