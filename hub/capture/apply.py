@@ -115,13 +115,15 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
         raise ApiError("validation_error", "JSON object body required", 400)
     stored = json.loads(capture_row["plan"])
     raw_plan, overrides = _plan_input(stored, body)
+    plan.assert_no_excluded_operations(conn, raw_plan, hub.settings)
     if "allow_new_types" in body and not isinstance(body["allow_new_types"], bool):
         raise ApiError("validation_error", "allow_new_types must be a boolean", 400)
     if set(body) - {"ops", "keep_note", "allow_new_types"}:
         raise ApiError("validation_error", "unsupported apply field", 400)
     raw_text = capture_row["raw_text"] or ""
     candidates = context.build_candidates(
-        hub, conn, raw_text, hub.settings.capture_candidates
+        hub, conn, raw_text, hub.settings.capture_candidates,
+        hub.settings.capture_exclude_types,
     ) if raw_text else []
     normalized = plan.normalize(
         conn, raw_plan, raw_text, candidates,
@@ -413,7 +415,8 @@ def validate(hub, conn, uid: str, body: dict) -> dict:
         raise ApiError("validation_error", "unsupported validation field", 400)
     raw_text = capture_row["raw_text"] or ""
     candidates = context.build_candidates(
-        hub, conn, raw_text, hub.settings.capture_candidates
+        hub, conn, raw_text, hub.settings.capture_candidates,
+        hub.settings.capture_exclude_types,
     ) if raw_text else []
     normalized = plan.normalize(
         conn, raw_plan, raw_text, candidates,
@@ -545,7 +548,8 @@ def undo(hub, conn, uid: str, actor: str) -> dict:
                     continue
                 conn.execute(
                     "UPDATE entities SET data=?,updated_at=? WHERE id=?",
-                    (json.dumps(before, ensure_ascii=False), _now(), current["id"]),
+                    (json.dumps(before, ensure_ascii=False),
+                     entities._next_updated_at(current["updated_at"]), current["id"]),
                 )
                 entities._write_chunk(hub, conn, current["id"], prepared[item["id"]])
             undone.append(item["op_id"])

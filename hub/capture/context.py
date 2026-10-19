@@ -8,6 +8,7 @@ from .. import search
 from .. import self as self_svc
 from ..db import fold
 from ..errors import ApiError
+from ..policy import capture_excluded_types
 
 
 def _field_type(prop: dict) -> str:
@@ -26,8 +27,10 @@ def _field_type(prop: dict) -> str:
     return {"string": "text", "integer": "int"}.get(kind, kind)
 
 
-def build_catalog(conn, exclude_types: str = "place_visit", max_chars: int = 5000) -> str:
-    excluded = {part.strip() for part in exclude_types.split(",") if part.strip()}
+def build_catalog(
+    conn, exclude_types: str = "", max_chars: int = 5000
+) -> str:
+    excluded = capture_excluded_types(conn, exclude_types)
     entries: list[dict] = []
     for row in conn.execute("SELECT * FROM entity_types ORDER BY name"):
         if row["name"] in excluded:
@@ -74,11 +77,11 @@ def build_catalog(conn, exclude_types: str = "place_visit", max_chars: int = 500
     return out[:budget]
 
 
-def _candidate_row(conn, uid: str) -> dict | None:
+def _candidate_row(conn, uid: str, excluded: set[str]) -> dict | None:
     row = conn.execute(
         "SELECT uid,type,data FROM entities WHERE uid=? AND status='current'", (uid,)
     ).fetchone()
-    if row is None:
+    if row is None or row["type"] in excluded:
         return None
     data = json.loads(row["data"])
     type_row = conn.execute(
@@ -103,14 +106,20 @@ def _candidate_row(conn, uid: str) -> dict | None:
     }
 
 
-def build_candidates(hub, conn, text: str, limit: int = 25) -> list[dict]:
+def build_candidates(
+    hub, conn, text: str, limit: int = 25, exclude_types: str = ""
+) -> list[dict]:
+    excluded = capture_excluded_types(conn, exclude_types)
     folded_text = fold(text) or ""
     deterministic: list[tuple[int, dict]] = []
     for row in conn.execute(
         "SELECT e.uid,e.type,e.data,t.unique_key FROM entities e "
         "JOIN entity_types t ON t.name=e.type WHERE e.status='current' "
+        "AND t.capture_visible=1 "
         "ORDER BY e.id DESC"
     ):
+        if row["type"] in excluded:
+            continue
         data = json.loads(row["data"])
         if (row["type"] == "person" and isinstance(data.get("relationship"), str)
                 and fold(data["relationship"]) == "self"):
@@ -126,7 +135,7 @@ def build_candidates(hub, conn, text: str, limit: int = 25) -> list[dict]:
         if folded_label and re.search(
             r"(?<!\w)" + re.escape(folded_label) + r"(?!\w)", folded_text, re.UNICODE
         ):
-            candidate = _candidate_row(conn, row["uid"])
+            candidate = _candidate_row(conn, row["uid"], excluded)
             if candidate:
                 deterministic.append((folded_text.find(folded_label), candidate))
     deterministic.sort(key=lambda item: item[0])
@@ -135,24 +144,31 @@ def build_candidates(hub, conn, text: str, limit: int = 25) -> list[dict]:
     remaining = max(0, limit - len(selected))
     if remaining:
         try:
-            hits = search.search(hub, conn, text[:1000], limit=min(10, remaining),
-                                 kinds=["entity"])["hits"]
+            visible_types = [
+                row["name"] for row in conn.execute(
+                    "SELECT name FROM entity_types WHERE capture_visible=1"
+                ) if row["name"] not in excluded
+            ]
+            hits = search.search(
+                hub, conn, text[:1000], limit=min(10, remaining), kinds=["entity"],
+                types=visible_types,
+            )["hits"] if visible_types else []
         except (ApiError, ValueError, RuntimeError):  # semantic search is optional context
             hits = []
         for hit in hits:
             uid = hit.get("id")
             if uid in seen:
                 continue
-            candidate = _candidate_row(conn, uid)
+            candidate = _candidate_row(conn, uid, excluded)
             if candidate:
                 selected.append(candidate)
                 seen.add(uid)
     return selected[:max(0, limit)]
 
 
-def self_line(conn) -> str:
+def self_line(conn, exclude_types: str = "") -> str:
     owner = self_svc.get_self(conn)["self"]
-    if owner is None:
+    if owner is None or owner["type"] in capture_excluded_types(conn, exclude_types):
         return "SELF: none yet"
     data = owner["data"]
     details = []

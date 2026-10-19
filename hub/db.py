@@ -135,7 +135,24 @@ def _m4(conn: sqlite3.Connection) -> None:
     )
 
 
-MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_m1, _m2, _m3, _m4]
+def _m5(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(entity_types)")}
+    for name in ("capture_visible", "agent_visible", "auditable"):
+        if name not in columns:
+            conn.execute(
+                f"ALTER TABLE entity_types ADD COLUMN {name} INTEGER NOT NULL DEFAULT 1"
+            )
+
+
+def _m6(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(entity_types)")}
+    if "allow_extension" not in columns:
+        conn.execute(
+            "ALTER TABLE entity_types ADD COLUMN allow_extension INTEGER NOT NULL DEFAULT 1"
+        )
+
+
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_m1, _m2, _m3, _m4, _m5, _m6]
 
 
 def migrate(conn: sqlite3.Connection) -> None:

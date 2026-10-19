@@ -112,6 +112,7 @@ The repository includes a dedicated MCP bridge (`hub_mcp`) implementing the [Mod
 | `find_entities` | Search and filter entities by type and JSON field criteria. |
 | `get_self` | Retrieve profile information about the knowledge base owner. |
 | `list_types` | List all available entity types and schemas. |
+| `extend_entity_type` | Preview and, after owner approval, add optional fields to a type. |
 
 ### Connecting to Claude Desktop / Cursor
 
@@ -182,7 +183,36 @@ Key variables defined in `.env.example`:
 | `MCP_TRANSPORT` | `streamable-http` | `streamable-http` or `stdio`. |
 | `MCP_PORT` | `8000` | Port for MCP Streamable HTTP service. |
 | `CAPTURE_ENABLED` | `true` | Enable Smart Capture pipeline for automated entity extraction. |
+| `CAPTURE_EXCLUDE_TYPES` | `place_visit,task,grocery_list,grocery_item,plainlist_settings` | Exclude application-owned records from Capture. |
+| `TOOLS_ALLOW_EXTEND` | `true` | Allow agents to propose additive entity-type fields. |
 | `LLM_MODEL` | _empty_ | Model name for AI note tidy-up and entity extraction. |
+
+---
+
+## Entity types, archive, and policy
+
+The Entities tab hides archived records by default. “Show archived” includes them in
+entity lists and search; archived records can be restored from the row or detail view.
+Current entities can be edited with schema-generated forms and stale-edit protection.
+
+Custom types can be deleted from their type details. Export the JSON first; if the type
+contains records, confirm cascade deletion by checking the box and typing the type name.
+The optional “Convert entities to notes” choice preserves each record as a searchable
+note before the entities and type are removed. Built-in and referenced types, or types
+with a running Capture job, cannot be deleted.
+
+Each type has `searchable` (the existing `embed` setting), `capture_visible`,
+`agent_visible`, `auditable`, and `allow_extension` policy flags. Flags default to
+enabled. Set `allow_extension=false` to lock a type's schema while continuing to
+expose its records to Capture and agents/MCP. The REST extension endpoint, Capture
+schema proposals, and `extend_entity_type` all honor this setting. Set
+`capture_visible=false` for application-owned types such as PlainList’s `task`,
+`grocery_list`, `grocery_item`, and `plainlist_settings`; keep `agent_visible=true` if
+agents should operate the app’s data. The `CAPTURE_EXCLUDE_TYPES` setting remains an
+additional capture-only exclusion.
+
+See [the API reference](docs/API_REFERENCE.md) for client UIDs, concurrency,
+type deletion, and policy behavior.
 
 ---
 

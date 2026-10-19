@@ -15,6 +15,7 @@ def _do(args: dict):
         return jsonify(svc.search(
             hub, conn, args.get("q"), limit=args.get("limit", 10), kinds=args.get("kinds"),
             tags=args.get("tags"), include_superseded=args.get("include_superseded", False),
+            include_archived=args.get("include_archived", False),
             min_similarity=args.get("min_similarity"), since=args.get("since"),
             until=args.get("until"), types=args.get("types")))
     except (TypeError, ValueError) as e:
@@ -37,5 +38,6 @@ def get_search():
     return _do({
         "q": a.get("q"), "limit": a.get("limit", 10),
         "include_superseded": a.get("include_superseded") == "true",
+        "include_archived": a.get("include_archived") == "true",
         "kinds": a.getlist("kinds") or None, "types": a.getlist("types") or None, "tags": a.getlist("tags") or None,
     })

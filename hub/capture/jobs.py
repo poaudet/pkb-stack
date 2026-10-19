@@ -289,14 +289,20 @@ class CaptureQueue:
                     self.hub.settings.capture_catalog_max_chars,
                 )
                 candidates = context.build_candidates(
-                    self.hub, conn, raw_text, self.hub.settings.capture_candidates
+                    self.hub, conn, raw_text, self.hub.settings.capture_candidates,
+                    self.hub.settings.capture_exclude_types,
                 )
                 max_ops = max(1, min(20, self.hub.settings.capture_max_ops))
                 msgs = build_messages(
                     text=raw_text, hint=row["hint"], answers=json.loads(row["answers"]),
                     today=row["as_of"], catalog=catalog,
-                    candidates=context.candidate_lines(candidates, context.self_line(conn)),
-                    self_line=context.self_line(conn), max_ops=max_ops,
+                    candidates=context.candidate_lines(
+                        candidates,
+                        context.self_line(conn, self.hub.settings.capture_exclude_types),
+                    ),
+                    self_line=context.self_line(
+                        conn, self.hub.settings.capture_exclude_types,
+                    ), max_ops=max_ops,
                     tz=self.hub.settings.hub_timezone,
                 )
                 if sum(len(message["content"]) for message in msgs) > 24_000:

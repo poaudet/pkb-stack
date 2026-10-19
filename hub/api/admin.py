@@ -49,6 +49,7 @@ def health():
     try:
         return jsonify({
             "status": "needs_reindex" if hub.needs_reindex else "ok",
+            "features": ["client_uid"],
             "vector_backend": hub.store.backend,
             "embed_model": hub.embedder.model,
             "llm": llm_info(hub.llm_settings("tidy")),
