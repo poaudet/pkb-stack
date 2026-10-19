@@ -202,3 +202,10 @@
   is the API alias for `embed`; type/schema changes and destructive operations remain
   audited regardless of the `auditable` flag.
 - No dependencies were added.
+
+## Fixed entity-type schemas
+- Added `allow_extension` as an entity-type policy, defaulting to `true` for existing and new
+  types. When false, the shared extension validator rejects REST, Capture, and agent/MCP
+  schema changes; visibility and record operations remain controlled by their separate flags.
+- The policy can be configured at type creation or changed later through the existing type PATCH
+  endpoint. No dependencies were added.

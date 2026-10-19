@@ -141,6 +141,7 @@ def _type_dict(r: sqlite3.Row) -> dict:
             "capture_visible": bool(r["capture_visible"]),
             "agent_visible": bool(r["agent_visible"]),
             "auditable": bool(r["auditable"]),
+            "allow_extension": bool(r["allow_extension"]),
         },
         "schema_version": r["schema_version"],
         "created_at": r["created_at"], "updated_at": r["updated_at"],
@@ -228,11 +229,14 @@ def _policy_fields(data: dict, current: dict | None = None) -> dict[str, int]:
         "capture_visible": True,
         "agent_visible": True,
         "auditable": True,
+        "allow_extension": True,
     })
     requested = data.get("policy", {})
     if not isinstance(requested, dict):
         raise validation("policy must be an object")
-    allowed = {"searchable", "capture_visible", "agent_visible", "auditable"}
+    allowed = {
+        "searchable", "capture_visible", "agent_visible", "auditable", "allow_extension",
+    }
     if set(requested) - allowed:
         raise validation("unknown policy key")
     for key, value in requested.items():
@@ -264,9 +268,10 @@ def create_type(conn: sqlite3.Connection, data: dict, actor: str = "ui") -> dict
             raise ApiError("conflict", "entity type already exists", 409)
         conn.execute(
             "INSERT INTO entity_types(name,description,json_schema,text_template,unique_key,embed,"
-            "capture_visible,agent_visible,auditable) VALUES(?,?,?,?,?,?,?,?,?)",
+            "capture_visible,agent_visible,auditable,allow_extension) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (name, desc, json.dumps(schema), tmpl, ukey, flags["searchable"],
-             flags["capture_visible"], flags["agent_visible"], flags["auditable"]),
+             flags["capture_visible"], flags["agent_visible"], flags["auditable"],
+             flags["allow_extension"]),
         )
         conn.execute(
             "INSERT INTO entity_type_history(type,version,json_schema,change,actor) "
@@ -301,9 +306,10 @@ def patch_type(conn: sqlite3.Connection, name: str, data: dict, force: bool = Fa
     with tx(conn):
         conn.execute(
             "UPDATE entity_types SET description=?, json_schema=?, text_template=?, unique_key=?,"
-            " embed=?,capture_visible=?,agent_visible=?,auditable=?,updated_at=? WHERE name=?",
+            " embed=?,capture_visible=?,agent_visible=?,auditable=?,allow_extension=?,updated_at=? "
+            "WHERE name=?",
             (desc, json.dumps(schema), tmpl, ukey, int(embed), flags["capture_visible"],
-             flags["agent_visible"], flags["auditable"], _now(), name),
+             flags["agent_visible"], flags["auditable"], flags["allow_extension"], _now(), name),
         )
         _audit(conn, actor, "update", "entity_type", name)
     return get_type(conn, name)

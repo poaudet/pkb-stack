@@ -33,13 +33,15 @@ existing client behavior.
     "searchable": true,
     "capture_visible": true,
     "agent_visible": true,
-    "auditable": true
+    "auditable": true,
+    "allow_extension": true
   }
 }
 ```
 
 `searchable` aliases the existing `embed` field. All values must be booleans; unknown
-policy keys are rejected. New type flags default to `true`.
+policy keys are rejected. `capture_visible`, `agent_visible`, `auditable`, and
+`allow_extension` default to `true`.
 
 - `capture_visible=false` hides the type from every Capture path. The
   `CAPTURE_EXCLUDE_TYPES` setting adds exclusions.
@@ -48,6 +50,9 @@ policy keys are rejected. New type flags default to `true`.
 - `auditable=false` suppresses entity create, update, archive, restore, and supersede
   audit rows. Type/schema changes, forget, and type deletion remain audited.
 - `searchable=false` is equivalent to `embed=false`.
+- `allow_extension=false` locks the schema against REST, Capture, and tool/MCP extension
+  requests while leaving the type's visibility policies unchanged. It can be changed by
+  patching the type policy.
 
 ## Type extension tool
 
@@ -57,6 +62,8 @@ The default call validates and returns a proposed `diff` without writing. After 
 owner approval, send `confirm=true`. Additions remain optional and additive, and use the
 same validation and audit/history service as the REST extension route.
 `TOOLS_ALLOW_EXTEND=false` makes calls return `forbidden`.
+Types with `policy.allow_extension=false` also reject extension requests with `forbidden`;
+the setting is available in REST and tool-based entity-type definitions.
 
 ## Entity type deletion
 

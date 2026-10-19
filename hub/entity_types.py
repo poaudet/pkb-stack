@@ -38,6 +38,8 @@ def _type_row(conn, name: str):
 def _validate_properties(conn, row, additions: object, max_new: int,
                          schema_override: dict | None = None,
                          version_override: int | None = None) -> dict:
+    if not row["allow_extension"]:
+        raise ApiError("forbidden", "entity type schema extension is disabled", 403)
     if not isinstance(additions, dict) or not 1 <= len(additions) <= max_new:
         raise validation(f"add_properties must contain 1..{max_new} properties")
     schema = schema_override or json.loads(row["json_schema"])

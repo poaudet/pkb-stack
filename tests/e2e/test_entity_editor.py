@@ -126,3 +126,28 @@ def test_type_delete_dialog_exports_and_converts_entities(page, ui_server):
       return (await (await fetch('/api/notes/' + list.items[0].id, {headers})).json()).note;
     }""")
     assert "Keep this as a note" in note["content"]
+
+
+@pytest.mark.e2e
+def test_type_policy_locks_and_unlocks_schema_extensions(page, ui_server):
+    open_app(page, ui_server())
+    page.evaluate("""async () => {
+      const headers = {'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + localStorage.getItem('hub_token')};
+      await fetch('/api/entity-types', {method: 'POST', headers, body: JSON.stringify({
+        name: 'fixed_schema_ui',
+        json_schema: {type: 'object', properties: {title: {type: 'string'}}},
+        policy: {allow_extension: false}
+      })});
+    }""")
+    page.get_by_role("button", name="Entities").click()
+    page.locator("#e-type").select_option("fixed_schema_ui")
+    page.locator("#e-type-details summary").click()
+    assert page.get_by_role("button", name="Schema locked").is_disabled()
+    page.locator("#e-type-details label").filter(
+        has_text="allow extension"
+    ).locator("input").check()
+    page.get_by_role("button", name="Save policies").click()
+    page.locator("#e-type-details summary").click()
+    page.get_by_role("button", name="Add field").wait_for()
+    assert page.get_by_role("button", name="Add field").is_enabled()

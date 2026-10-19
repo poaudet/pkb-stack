@@ -6,7 +6,7 @@ import re
 import pytest
 
 from hub import db
-from hub.capture import context
+from hub.capture import context, plan
 from tests.test_capture import Stub, make_capture_client, submit, wait_capture
 
 
@@ -192,6 +192,57 @@ def test_extend_entity_type_tool_dry_run_confirm_idempotence_and_gate(mk):
     assert refusal["error"]["code"] == "forbidden"
 
 
+def test_extension_policy_locks_type_definition_and_all_extension_paths(client, app):
+    created = _type(client, "fixed_schema", policy={"allow_extension": False})
+    assert created.status_code == 201
+    type_info = created.get_json()["type"]
+    assert type_info["policy"]["allow_extension"] is False
+
+    extension = {
+        "add_properties": {"author": {"type": "string", "description": "Book author"}},
+        "confirm": True,
+    }
+    response = client.post("/api/entity-types/fixed_schema/extend", json=extension)
+    assert response.status_code == 403
+    assert response.get_json()["error"]["code"] == "forbidden"
+
+    tool = _tool(client, "extend_entity_type", {
+        "name": "fixed_schema", "add_properties": extension["add_properties"],
+    })
+    assert tool["error"]["code"] == "forbidden"
+
+    tool_created = _tool(client, "create_entity_type", {
+        "name": "agent_fixed_schema",
+        "json_schema": {"type": "object", "properties": {"title": {"type": "string"}}},
+        "policy": {"allow_extension": False},
+    })
+    assert tool_created["ok"]
+    assert tool_created["result"]["type"]["policy"]["allow_extension"] is False
+
+    conn = app.extensions["hub"].conn()
+    try:
+        normalized = plan.normalize(
+            conn,
+            {"ops": [{
+                "id": "extension", "op": "extend_entity_type", "type": "fixed_schema",
+                "add_properties": extension["add_properties"],
+            }]},
+            "remember this",
+            [],
+        )
+        assert normalized["ops"][0]["status"] == "invalid"
+        assert "schema extension is disabled" in normalized["ops"][0]["errors"][0]
+    finally:
+        conn.close()
+
+    patched = client.patch("/api/entity-types/fixed_schema", json={
+        "policy": {"allow_extension": True},
+    })
+    assert patched.status_code == 200
+    assert patched.get_json()["type"]["policy"]["allow_extension"] is True
+    assert client.post("/api/entity-types/fixed_schema/extend", json=extension).status_code == 200
+
+
 def test_type_delete_refusals_cascade_and_convert_entities_to_notes(client, app):
     assert _type(client, "custom").status_code == 201
     entity = client.post("/api/entities", json={
@@ -278,7 +329,8 @@ def test_policy_flags_affect_tools_audit_capture_and_api(client, app):
     info = client.get("/api/entity-types/private_record").get_json()["type"]
     assert info["embed"] is True
     assert info["policy"] == {
-        "searchable": True, "capture_visible": False, "agent_visible": False, "auditable": False,
+        "searchable": True, "capture_visible": False, "agent_visible": False,
+        "auditable": False, "allow_extension": True,
     }
     entity = client.post("/api/entities", json={
         "type": "private_record", "data": {"title": "Hidden phrase"},
@@ -347,10 +399,11 @@ def test_policy_migration_preserves_existing_type(tmp_path):
         )
         db.migrate(conn)
         row = conn.execute(
-            "SELECT capture_visible,agent_visible,auditable FROM entity_types WHERE name=?",
+            "SELECT capture_visible,agent_visible,auditable,allow_extension "
+            "FROM entity_types WHERE name=?",
             ("legacy_type",),
         ).fetchone()
-        assert tuple(row) == (1, 1, 1)
-        assert db.get_meta(conn, "schema_version") == "5"
+        assert tuple(row) == (1, 1, 1, 1)
+        assert db.get_meta(conn, "schema_version") == "6"
     finally:
         conn.close()

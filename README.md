@@ -202,7 +202,10 @@ note before the entities and type are removed. Built-in and referenced types, or
 with a running Capture job, cannot be deleted.
 
 Each type has `searchable` (the existing `embed` setting), `capture_visible`,
-`agent_visible`, and `auditable` policy flags. Flags default to enabled. Set
+`agent_visible`, `auditable`, and `allow_extension` policy flags. Flags default to
+enabled. Set `allow_extension=false` to lock a type's schema while continuing to
+expose its records to Capture and agents/MCP. The REST extension endpoint, Capture
+schema proposals, and `extend_entity_type` all honor this setting. Set
 `capture_visible=false` for application-owned types such as PlainList’s `task`,
 `grocery_list`, `grocery_item`, and `plainlist_settings`; keep `agent_visible=true` if
 agents should operate the app’s data. The `CAPTURE_EXCLUDE_TYPES` setting remains an

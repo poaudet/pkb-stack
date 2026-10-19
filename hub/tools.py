@@ -163,7 +163,7 @@ def _extend_entity_type(hub, conn, args, actor):
 
 def _type_args(a: dict) -> dict:
     return {k: a[k] for k in ("name", "description", "json_schema", "text_template",
-                              "unique_key", "embed") if k in a}
+                              "unique_key", "embed", "policy") if k in a}
 
 
 _ID = {"type": "string", "description": "The id returned by search or a previous call."}
@@ -225,7 +225,10 @@ TOOLS: list[Tool] = [
          "\"string\"}, \"ingredients\": {\"type\": \"array\", \"items\": {\"type\": \"string\"}}}},"
          " \"text_template\": \"{title}: {ingredients}\", \"unique_key\": \"title\"}.",
          _obj({"name": _STR, "description": _STR, "json_schema": {"type": "object"},
-               "text_template": _STR, "unique_key": _STR, "embed": {"type": "boolean"}},
+               "text_template": _STR, "unique_key": _STR, "embed": {"type": "boolean"},
+               "policy": {"type": "object", "properties": {
+                   "allow_extension": {"type": "boolean"},
+               }, "additionalProperties": True}},
               ["name", "json_schema"]),
          lambda h, c, a, u: {"type": entities.create_type(c, _type_args(a), u)}, writes=True),
     Tool("create_entity",
@@ -237,7 +240,8 @@ TOOLS: list[Tool] = [
          _create_entity,
          writes=True),
     Tool("extend_entity_type",
-         "Propose an additive type extension with confirm=false first. Show the returned diff "
+         "Propose an additive type extension with confirm=false first. Types with "
+         "policy.allow_extension=false cannot be extended. Show the returned diff "
          "to the owner, then call again with confirm=true only after explicit approval. "
          "Use a note instead when approval is not given.",
          _obj({"name": _STR, "add_properties": {"type": "object"},

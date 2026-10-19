@@ -95,7 +95,13 @@ export function renderTypeDetails(name, container) {
   }));
   details.append(typeSummary(type));
   const actions = el("div", { className: "type-actions" });
-  const add = el("button", { type: "button", className: "secondary", textContent: "Add field" });
+  const extensionAllowed = type.policy?.allow_extension !== false;
+  const add = el("button", {
+    type: "button", className: "secondary",
+    textContent: extensionAllowed ? "Add field" : "Schema locked",
+    disabled: !extensionAllowed,
+    title: extensionAllowed ? "" : "Schema extensions are disabled for this type.",
+  });
   add.addEventListener("click", () => openAddField(type.name));
   const history = el("button", { type: "button", className: "secondary", textContent: "History" });
   history.addEventListener("click", () => showHistory(type.name, details));
@@ -107,8 +113,11 @@ export function renderTypeDetails(name, container) {
     capture_visible: "Allow Smart Capture to see and change this type.",
     agent_visible: "Allow agent tools and MCP to see and change this type.",
     auditable: "Keep audit history for entity changes.",
+    allow_extension: "Allow adding optional fields to this type's schema.",
   };
-  for (const key of ["searchable", "capture_visible", "agent_visible", "auditable"]) {
+  for (const key of [
+    "searchable", "capture_visible", "agent_visible", "auditable", "allow_extension",
+  ]) {
     const label = el("label");
     const input = el("input", { type: "checkbox" });
     input.checked = type.policy?.[key] ?? (key === "searchable" ? type.embed : true);
