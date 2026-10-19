@@ -146,7 +146,7 @@ def test_fold_and_capture_schema_migration(tmp_path):
             "SELECT name FROM sqlite_master WHERE type='table'"
         )}
         assert {"captures", "capture_ops", "capture_usage"} <= tables
-        assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "6"
+        assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "7"
         indexes = {row[0] for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index'"
         )}

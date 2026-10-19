@@ -152,7 +152,18 @@ def _m6(conn: sqlite3.Connection) -> None:
         )
 
 
-MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_m1, _m2, _m3, _m4, _m5, _m6]
+def _m7(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(captures)")}
+    if "redacted_kinds" not in columns:
+        conn.execute(
+            "ALTER TABLE captures ADD COLUMN redacted_kinds TEXT NOT NULL DEFAULT '{}' "
+            "CHECK (json_valid(redacted_kinds))"
+        )
+
+
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
+    _m1, _m2, _m3, _m4, _m5, _m6, _m7,
+]
 
 
 def migrate(conn: sqlite3.Connection) -> None:

@@ -209,3 +209,14 @@
   schema changes; visibility and record operations remain controlled by their separate flags.
 - The policy can be configured at type creation or changed later through the existing type PATCH
   endpoint. No dependencies were added.
+
+## Capture hardening A1 (redaction)
+- Added `hub/capture/redact.py`; Capture text, hint and answers are redacted before gating,
+  storage, and any LLM call. `captures.redacted_kinds` (migration 7) stores counts per kind only.
+- Health card detection requires four uppercase letters plus 8–12 digits to limit false positives;
+  passport, licence and bank-account patterns require their keyword before the token. The skip-AI
+  note path also stores redacted text.
+- The fixture `tests/fixtures/long_capture_recap.txt` could not be created: the recap text from the
+  previous handoff is not in the repository. Fixture-based items (gate, scoring harness) are blocked
+  until the owner supplies it.
+- No dependencies were added.

@@ -16,7 +16,7 @@ from ..config import Settings
 from ..core import Hub
 from ..db import tx
 from ..errors import ApiError, not_found, validation
-from . import context, gates, llm, plan
+from . import context, gates, llm, plan, redact
 from .prompt import messages as build_messages
 
 log = logging.getLogger(__name__)
@@ -52,6 +52,7 @@ def to_dict(row: sqlite3.Row) -> dict:
         "questions": json.loads(row["questions"]),
         "answers": json.loads(row["answers"]),
         "warnings": json.loads(row["warnings"]),
+        "redacted_kinds": json.loads(row["redacted_kinds"]),
         "error": row["error"],
         "llm_model": row["llm_model"],
         "prompt_tokens": row["prompt_tokens"],
@@ -65,6 +66,7 @@ def create(hub: Hub, conn: sqlite3.Connection, data: dict, actor: str) -> tuple[
     text = data.get("text")
     if not isinstance(text, str) or not text.strip():
         raise validation("text is required")
+    text, redacted_kinds = redact.redact(text)
     skip_ai = data.get("skip_ai") is True
     if skip_ai:
         if len(text) > hub.settings.capture_max_chars:
@@ -88,6 +90,8 @@ def create(hub: Hub, conn: sqlite3.Connection, data: dict, actor: str) -> tuple[
         raise validation("hint must be a string")
     if hint and len(hint) > 1000:
         raise validation("hint exceeds 1000 characters")
+    if hint:
+        hint, _ = redact.redact(hint)
     as_of = data.get("as_of")
     if as_of is not None:
         if not isinstance(as_of, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", as_of):
@@ -105,9 +109,9 @@ def create(hub: Hub, conn: sqlite3.Connection, data: dict, actor: str) -> tuple[
     uid = uuid.uuid4().hex
     with tx(conn):
         conn.execute(
-            "INSERT INTO captures(uid,raw_text,text_hash,hint,as_of,source,state) "
-            "VALUES(?,?,?,?,?,?,'queued')",
-            (uid, text, digest, hint, as_of, source),
+            "INSERT INTO captures(uid,raw_text,text_hash,hint,as_of,source,state,redacted_kinds) "
+            "VALUES(?,?,?,?,?,?,'queued',?)",
+            (uid, text, digest, hint, as_of, source, json.dumps(redacted_kinds)),
         )
         conn.execute(
             "INSERT INTO audit_log(actor,action,target_kind,target_uid) VALUES(?,?,?,?)",
@@ -187,6 +191,9 @@ def regenerate(hub: Hub, conn: sqlite3.Connection, uid: str, data: dict) -> dict
     hint = data.get("hint", row["hint"])
     if not isinstance(answers, dict) or not isinstance(hint, (str, type(None))):
         raise validation("answers must be an object and hint a string")
+    answers = json.loads(redact.redact(json.dumps(answers, ensure_ascii=False))[0])
+    if hint:
+        hint, _ = redact.redact(hint)
     with tx(conn):
         conn.execute(
             "UPDATE captures SET state='queued',error=NULL,answers=?,hint=? WHERE id=?",
