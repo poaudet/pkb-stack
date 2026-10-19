@@ -41,6 +41,7 @@ class Stub:
         self.reply = json.dumps(G1)
         self.replies = []
         self.reject_format = False
+        self.responder = None
         self.calls = []
         stub = self
 
@@ -53,7 +54,12 @@ class Stub:
                 stub.calls.append(request_body)
                 if stub.reject_format and "response_format" in request_body:
                     return self.send_json(400, {"error": {"message": "unsupported"}})
-                reply = stub.replies.pop(0) if stub.replies else stub.reply
+                if stub.responder:
+                    status, reply, headers = stub.responder(request_body)
+                    if status != 200:
+                        return self.send_json(status, {"error": {"message": "stub"}}, headers)
+                else:
+                    reply = stub.replies.pop(0) if stub.replies else stub.reply
                 self.send_json(200, {
                     "id": "stub", "object": "chat.completion", "created": 0,
                     "model": "stub", "choices": [{
@@ -63,9 +69,11 @@ class Stub:
                     "usage": {"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19},
                 })
 
-            def send_json(self, status, value):
+            def send_json(self, status, value, headers=None):
                 content = json.dumps(value).encode()
                 self.send_response(status)
+                for key, item in (headers or {}).items():
+                    self.send_header(key, item)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(content)))
                 self.end_headers()

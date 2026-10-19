@@ -59,8 +59,19 @@ function localDate() {
 
 function updateCounter() {
   const length = $("capture-text").value.length;
-  const limit = state.config ? state.config.max_chars : 8000;
+  const mode = $("capture-mode").value;
+  const longOn = Boolean(state.config) && state.config.long_mode !== "off";
+  const limit = state.config
+    ? (longOn && mode !== "short" ? state.config.long_max_chars : state.config.max_chars) : 8000;
   $("capture-count").textContent = `${length}/${limit}`;
+  const hint = $("capture-long-hint");
+  const threshold = state.config ? state.config.long_threshold_chars : 4000;
+  const isLong = longOn && (mode === "long" || (mode === "auto" && length > threshold));
+  hint.hidden = !isLong || length === 0;
+  if (!hint.hidden) {
+    const target = (state.config && state.config.chunk_target_chars) || 3000;
+    hint.textContent = `Long capture: about ${Math.max(1, Math.ceil(length / target))} chunks`;
+  }
   $("capture-submit").disabled = state.busy || length === 0;
   $("capture-submit").textContent = submitLabel();
 }
@@ -139,7 +150,8 @@ async function loadConfig(options = routeSignal()) {
     $("capture-privacy").title = state.config.resets_at
       ? `Usage resets at ${state.config.resets_at}` : "";
     $("capture-submit").hidden = false;
-    $("capture-text").maxLength = state.config.max_chars;
+    $("capture-text").maxLength = state.config.long_mode === "off"
+      ? state.config.max_chars : state.config.long_max_chars;
     updateCounter();
   } catch (error) {
     if (error.name === "AbortError") return;
@@ -220,7 +232,10 @@ async function submitCapture(options = {}) {
   const text = $("capture-text").value;
   const skipAi = $("capture-skip-ai").checked || !state.config
     || !state.config.enabled || !state.config.model;
-  const maxChars = state.config ? state.config.max_chars : 8000;
+  const mode = $("capture-mode").value;
+  const longOn = Boolean(state.config) && state.config.long_mode !== "off";
+  const maxChars = state.config
+    ? (longOn && mode !== "short" ? state.config.long_max_chars : state.config.max_chars) : 8000;
   clearError();
   $("capture-message").textContent = "";
   if (!text.trim()) return;
@@ -235,6 +250,7 @@ async function submitCapture(options = {}) {
       hint: $("capture-hint").value || undefined,
       as_of: $("capture-as-of").value || undefined,
       skip_ai: skipAi,
+      ...(mode !== "auto" ? { mode } : {}),
       ...(options.allowSecrets ? { allow_secrets: true } : {}),
     }, routeSignal());
     clearDraft();
@@ -267,6 +283,43 @@ function stopPolling() {
   state.pollTimer = null;
 }
 
+const CHUNK_LABELS = { pending: "waiting", running: "running", done: "done", failed: "failed" };
+
+function renderChunkProgress(box, capture) {
+  const chunks = capture.chunks || [];
+  if (capture.mode !== "long" || !chunks.length) return;
+  box.append(
+    el("progress", {
+      value: capture.chunks_done || 0, max: capture.chunks_total || chunks.length,
+      "aria-label": "Chunks processed",
+    }),
+    el("p", { className: "meta", textContent: `${capture.chunks_done || 0}/${capture.chunks_total || chunks.length} chunks` }),
+  );
+  const list = el("ul", { className: "capture-chunks" });
+  for (const chunk of chunks) {
+    const item = el("li", {
+      textContent: `Chunk ${chunk.idx + 1}: ${CHUNK_LABELS[chunk.status] || chunk.status}`
+        + (chunk.error_code ? ` (${chunk.error_code})` : ""),
+    });
+    if (chunk.status === "failed") {
+      const retry = el("button", { className: "secondary", textContent: "Retry" });
+      retry.addEventListener("click", async () => {
+        retry.disabled = true;
+        try {
+          await captureApi.retryChunk(capture.id, chunk.idx, routeSignal());
+          state.pollStarted = Date.now();
+          await refreshCapture();
+        } catch (error) {
+          if (error.name !== "AbortError") showError(error);
+        }
+      });
+      item.append(" ", retry);
+    }
+    list.append(item);
+  }
+  box.append(list);
+}
+
 function statusMessage(status, capture) {
   const box = $("capture-state");
   box.replaceChildren();
@@ -283,6 +336,22 @@ function statusMessage(status, capture) {
     location.hash = "#capture";
   });
   box.append(stop);
+  if (capture) {
+    renderChunkProgress(box, capture);
+    if (capture.mode === "long") {
+      const cancel = el("button", { className: "secondary", textContent: "Cancel" });
+      cancel.addEventListener("click", async () => {
+        cancel.disabled = true;
+        try {
+          await captureApi.cancel(capture.id, routeSignal());
+          await refreshCapture();
+        } catch (error) {
+          if (error.name !== "AbortError") showError(error);
+        }
+      });
+      box.append(cancel);
+    }
+  }
   if (elapsed >= 300) {
     box.append(el("p", { textContent: "Polling stopped after five minutes; the capture continues." }));
     stopPolling();
@@ -502,6 +571,43 @@ function operationTitle(op) {
   return [operationBadge(op), type, label].filter(Boolean).join(" — ");
 }
 
+function setGroupSelection(ops, checked) {
+  for (const op of ops) {
+    if (checked && op.status !== "valid") continue;
+    const id = String(op.id);
+    if (checked === state.selected.has(id)) continue;
+    const box = document.querySelector(`[data-op-select="${CSS.escape(id)}"]`);
+    if (box) box.checked = checked;
+    changeSelection(op, checked);
+  }
+}
+
+function renderChunkGroups(container, capture) {
+  const all = capture.plan.ops || [];
+  const groups = new Map();
+  const loose = [];
+  for (const op of all) {
+    const owners = capture.provenance[String(op.id)];
+    if (!owners || !owners.length) { loose.push(op); continue; }
+    const idx = Math.min(...owners);
+    if (!groups.has(idx)) groups.set(idx, []);
+    groups.get(idx).push(op);
+  }
+  for (const op of loose) container.append(renderOp(op));
+  for (const idx of [...groups.keys()].sort((a, b) => a - b)) {
+    const ops = groups.get(idx);
+    const details = el("details", { className: "capture-chunk-group", open: true });
+    details.append(el("summary", { textContent: `Chunk ${idx + 1} · ${ops.length} operations` }));
+    const accept = el("button", { className: "secondary", textContent: "Accept all" });
+    const reject = el("button", { className: "secondary", textContent: "Reject all" });
+    accept.addEventListener("click", () => setGroupSelection(ops, true));
+    reject.addEventListener("click", () => setGroupSelection(ops, false));
+    details.append(el("div", {}, accept, " ", reject));
+    for (const op of ops) details.append(renderOp(op));
+    container.append(details);
+  }
+}
+
 function renderOp(op) {
   const card = el("article", { className: "card capture-op", id: `capture-op-${op.id}` });
   card.dataset.opId = String(op.id);
@@ -529,6 +635,10 @@ function renderOp(op) {
   }
   if (op.why) card.append(el("p", { className: "meta capture-why", textContent: op.why }));
   const validation = el("div", { className: "op-validation", "aria-live": "polite" });
+  if (op.reject_reason) validation.append(el("p", {
+    className: "capture-error-text",
+    textContent: `${op.reject_reason}${op.reject_message ? ": " + op.reject_message : ""}`,
+  }));
   for (const error of op.errors || []) validation.append(el("p", { className: "capture-error-text", textContent: error }));
   for (const warning of op.warnings || []) validation.append(el("p", { className: "capture-warning", textContent: warning }));
   card.append(validation);
@@ -909,7 +1019,11 @@ async function renderReadyPlan(capture, shouldValidate = true) {
   appendPlanQuestions(section, capture);
   appendGaps(section, capture);
   const ops = el("div", { className: "capture-op-list" });
-  for (const op of capture.plan.ops || []) ops.append(renderOp(op));
+  if (capture.mode === "long" && capture.provenance) {
+    renderChunkGroups(ops, capture);
+  } else {
+    for (const op of capture.plan.ops || []) ops.append(renderOp(op));
+  }
   if (ops.childElementCount) section.append(ops);
   appendKeepNote(section, capture);
   section.append(el("p", { id: "capture-edit-message", className: "meta", role: "status", "aria-live": "polite" }));
@@ -1101,6 +1215,17 @@ async function renderCapture(capture) {
   box.hidden = false;
   if (capture.state === "failed") {
     box.append(el("p", { role: "status", textContent: capture.error || "Capture could not be analyzed." }));
+    renderChunkProgress(box, capture);
+    if (capture.mode === "long" && (capture.chunks_done || 0) > 0) {
+      appendErrorAction(box, "Continue with partial result", async () => {
+        try {
+          await captureApi.continuePartial(capture.id, routeSignal());
+          await refreshCapture();
+        } catch (error) {
+          if (error.name !== "AbortError") showError(error);
+        }
+      });
+    }
     appendErrorAction(box, strings.regenerate, () => regenerate(capture.id));
     if (capture.text) appendErrorAction(box, strings.saveAsNote, () => saveFailedCapture(capture.id));
     if (capture.text) appendErrorAction(box, strings.editText, () => editCapture(capture));
@@ -1238,6 +1363,7 @@ export async function initCapture() {
     saveDraft();
   });
   $("capture-hint").addEventListener("input", saveDraft);
+  $("capture-mode").addEventListener("change", updateCounter);
   $("capture-skip-ai").addEventListener("change", () => {
     localStorage.setItem(SKIP_AI_KEY, String($("capture-skip-ai").checked));
     updateCounter();

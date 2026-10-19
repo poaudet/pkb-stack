@@ -216,7 +216,32 @@
 - Health card detection requires four uppercase letters plus 8–12 digits to limit false positives;
   passport, licence and bank-account patterns require their keyword before the token. The skip-AI
   note path also stores redacted text.
-- The fixture `tests/fixtures/long_capture_recap.txt` could not be created: the recap text from the
-  previous handoff is not in the repository. Fixture-based items (gate, scoring harness) are blocked
-  until the owner supplies it.
+- The fixture `tests/fixtures/long_capture_recap.txt` was supplied later (synthetic data).
+- No dependencies were added.
+
+## Capture hardening A2-A8 and long capture (phase 6)
+- Rejected ops use status `rejected` with `reject_reason` and `reject_message`; applying a plan
+  with a rejected or invalid included op fails. Reasons: name_is_id, duplicate_candidate,
+  target_not_candidate, owner_record_protected, not_a_habit. Planner bookkeeping goes to the log.
+- Owner protection is narrower than the spec: the `SELF` alias may still be updated with
+  non-financial content (existing SELF behaviour and gap filling depend on it). Any other path
+  to the owner record, or financial content, is rejected.
+- "Tuesday" from a Sunday capture date resolves to the next occurrence (2026-10-20) and the spec's
+  expected values win over its "following day" wording. "this X" is on/after today; "next X" is in
+  the following Monday-Sunday week. Health cards match uppercase letters only.
+- The model reply is also redacted before parsing, so a model echo cannot reach storage.
+- Gate "before" scores are the raw recorded bad reply without the pipeline (the old pipeline
+  cannot be run). Task/habit/grocery types in the fixture world are test-defined schemas, since the
+  PlainList schemas are not in the repository. `CAPTURE_EXCLUDE_TYPES` still excludes task and
+  grocery types by default; clear it to capture them.
+- The `captures.state` CHECK cannot be altered, so needs_review is `ready`, a cancelled job is
+  `failed` with error `cancelled`, and a job with failed chunks is `failed` with a partial error.
+  The API exposes `partial`. `/continue` moves a partial job to `ready`.
+- Structured output tries json_schema, then json_object, then plain; every reply is validated and
+  retried once, then the chunk fails with `schema_invalid`.
+- Chunks run sequentially because each needs the working set of earlier chunks;
+  `CAPTURE_LONG_CONCURRENCY` is parsed and reserved. Chunk offsets index the stored redacted text.
+  The merged op cap is min(400, max ops x chunks). Provenance lives in `captures.op_meta`.
+- Migration 8 adds `captures.mode/chunks_total/chunks_done/op_meta` and `capture_chunks`.
+- New routes: POST `/api/capture/<id>/cancel`, `/continue`, `/chunks/<idx>/retry`.
 - No dependencies were added.

@@ -636,7 +636,7 @@ def extract_plan(hub, conn, *, text: str, hint: str | None, answers: dict, today
             max_attempts=max_attempts, schema=schema,
         )
         last_result = result
-        parsed = _parse_reply(result.text)
+        parsed = _parse_reply(redact.redact(result.text)[0])
         plan.validate(parsed)
         if chunk:
             parsed = {**parsed, "keep_note": False, "note": None}
@@ -653,7 +653,7 @@ def extract_plan(hub, conn, *, text: str, hint: str | None, answers: dict, today
         prompt_tokens, completion_tokens = result.prompt_tokens, result.completion_tokens
     except ValueError as exc:
         errors = str(exc)[:1000]
-        assistant = last_result.text if last_result else ""
+        assistant = redact.redact(last_result.text)[0] if last_result else ""
         prompt_tokens = last_result.prompt_tokens if last_result else None
         completion_tokens = last_result.completion_tokens if last_result else None
         repair = [

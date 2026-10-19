@@ -1,0 +1,18 @@
+{
+  "summary": "Sunday recap",
+  "ops": [
+    {"id": "o1", "op": "create_entity", "type": "person", "ref": "x", "data": {"name": "0123456789abcdef0123456789abcdef"}},
+    {"id": "o2", "op": "create_entity", "type": "person", "ref": "julie", "data": {"name": "Julie"}},
+    {"id": "o3", "op": "create_entity", "type": "person", "ref": "tremblay", "data": {"name": "Mr. Tremblay"}},
+    {"id": "o4", "op": "update_entity", "target": "{{OUTSIDER_ID}}", "patch": {"notes": "unrelated"}},
+    {"id": "o5", "op": "update_entity", "target": "{{OWNER_ID}}", "patch": {"notes": "Car insurance premium 1,120 dollars, health card RAMP 1234 5678 90"}},
+    {"id": "o6", "op": "create_entity", "type": "event", "data": {"date": "2026-10-21", "title": "Call the Mont-Royal bike shop to confirm a drop-off slot"}},
+    {"id": "o7", "op": "create_entity", "type": "event", "data": {"date": "2026-10-23", "title": "Simplify the retry logic before the review"}},
+    {"id": "o8", "op": "create_entity", "type": "habit", "data": {"name": "Learn to make sourdough bread", "cadence": "someday"}},
+    {"id": "o9", "op": "create_entity", "type": "habit", "data": {"name": "Second-hand electric keyboard"}},
+    {"id": "o10", "op": "create_entity", "type": "event", "data": {"date": "2026-10-18", "title": "Market trip on Rue Saint-Denis", "people": ["Julie"]}}
+  ],
+  "keep_note": true,
+  "note": {"title": "Sunday recap", "tags": []},
+  "questions": []
+}
