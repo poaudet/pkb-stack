@@ -68,6 +68,10 @@ dialog label { display:block; margin-top:8px; }
 .capture-questions textarea { display:block; }
 .capture-gaps { margin:10px 0; }
 .capture-error-text { overflow-wrap:anywhere; }
+.type-policy { display:grid; gap:6px; }
+.type-policy label { display:flex; align-items:center; gap:8px; }
+.type-policy input[type=checkbox] { width:20px; height:20px; }
+.type-danger-zone { border-top:1px solid #b3261e; margin-top:12px; padding-top:8px; }
 dialog button { min-height:44px; }
 .capture-action-bar button { touch-action:manipulation; min-height:44px; }
 @media (min-width:900px) {

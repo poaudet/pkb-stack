@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from jsonschema import Draft202012Validator
 
-from . import entities, notes, pending
+from . import entities, entity_types, notes, pending, policy
 from . import search as search_svc
 from . import self as self_svc
 from .core import Hub
@@ -45,10 +45,25 @@ _FILTERS = {
 # ---- handlers: (hub, conn, args, actor) -> JSON-serialisable result
 
 def _search(hub, conn, a, actor):
+    visible_types = [
+        row["name"] for row in conn.execute(
+            "SELECT name FROM entity_types WHERE agent_visible=1"
+        )
+    ]
+    if a.get("types") is not None:
+        visible_types = [name for name in visible_types if name in a["types"]]
     return search_svc.search(
         hub, conn, a["q"], limit=a.get("limit", 10), kinds=a.get("kinds"), tags=a.get("tags"),
-        include_superseded=a.get("include_superseded", False), since=a.get("since"),
-        until=a.get("until"), types=a.get("types"))
+        include_superseded=a.get("include_superseded", False),
+        include_archived=a.get("include_archived", False), since=a.get("since"),
+        until=a.get("until"), types=a.get("types"), visible_types=visible_types)
+
+
+def _get_self(conn):
+    owner = self_svc.get_self(conn)["self"]
+    if owner and not policy.is_agent_visible(conn, owner["type"]):
+        return {"exists": False}
+    return {"exists": False} if owner is None else {"entity": owner}
 
 
 def _create_note(hub, conn, a, actor):
@@ -65,6 +80,7 @@ def _supersede_note(hub, conn, a, actor):
 
 
 def _query(hub, conn, a, actor):
+    policy.require_agent_visible(conn, a["type"])
     return entities.query(conn, a)
 
 
@@ -74,8 +90,75 @@ def _forget_note(hub, conn, a, actor):
 
 
 def _forget_entity(hub, conn, a, actor):
+    policy.require_entity_agent_visible(conn, a["id"])
     entities.forget_entity(hub, conn, a["id"], actor, a.get("reason"))
     return {"forgotten": a["id"]}
+
+
+def _create_entity(hub, conn, args, actor):
+    policy.require_agent_visible(conn, args["type"])
+    return {"entity": entities.create_entity(hub, conn, args["type"], args["data"], actor)}
+
+
+def _get_entity(conn, uid):
+    policy.require_entity_agent_visible(conn, uid)
+    return {"entity": entities.get_entity(conn, uid)}
+
+
+def _patch_entity(hub, conn, args, actor):
+    policy.require_entity_agent_visible(conn, args["id"])
+    return {"entity": entities.patch_entity(hub, conn, args["id"], args["patch"], actor)}
+
+
+def _supersede_entity(hub, conn, args, actor):
+    policy.require_entity_agent_visible(conn, args["id"])
+    return {"entity": entities.supersede_entity(
+        hub, conn, args["id"], args["data"], args.get("reason"), actor)}
+
+
+def _archive_entity(hub, conn, args, actor):
+    policy.require_entity_agent_visible(conn, args["id"])
+    return {"entity": entities.set_status(
+        conn, args["id"], "archived", args.get("reason"), actor)}
+
+
+def _extend_entity_type(hub, conn, args, actor):
+    if not hub.settings.tools_allow_extend:
+        from .errors import ApiError
+
+        raise ApiError("forbidden", "type extension tool is disabled", 403)
+    name = args["name"]
+    policy.require_agent_visible(conn, name)
+    type_info = entities.get_type(conn, name)
+    properties = args["add_properties"]
+    if not isinstance(properties, dict) or not 1 <= len(properties) <= 5:
+        raise validation("add_properties must contain 1-5 properties")
+    current = type_info["json_schema"].get("properties", {})
+    additions = {}
+    for field, definition in properties.items():
+        existing = current.get(field)
+        if existing is None:
+            additions[field] = definition
+            continue
+        comparable = {key: value for key, value in existing.items()
+                      if key not in ("x-origin", "x-added")}
+        if comparable != definition:
+            from .errors import ApiError
+
+            raise ApiError("conflict", f"property {field!r} already exists differently", 409)
+    if not additions:
+        return {"applied": False, "reason": "exists", "schema_version": type_info["schema_version"]}
+    preview = entity_types.preview(conn, name, additions, max_new=5)
+    if not args.get("confirm", False):
+        return {
+            "applied": False,
+            "diff": [{"name": field, "definition": definition}
+                     for field, definition in preview["added"].items()],
+            "schema_version": type_info["schema_version"],
+        }
+    extension_actor = actor if actor.startswith("agent:") else f"agent:{actor[:74]}"
+    result = entity_types.extend(conn, name, additions, actor=extension_actor, max_new=5)
+    return {"applied": True, "schema_version": result["version"], "type": result["type"]}
 
 
 def _type_args(a: dict) -> dict:
@@ -88,15 +171,12 @@ _ID = {"type": "string", "description": "The id returned by search or a previous
 TOOLS: list[Tool] = [
     Tool("get_self",
          "Use to read the owner's own facts (preferences, habits, birthday) before asking them.",
-         _obj({}), lambda h, c, a, u: (
-             {"exists": False} if self_svc.get_self(c)["self"] is None
-             else {"entity": self_svc.get_self(c)["self"]}
-         )),
+         _obj({}), lambda h, c, a, u: _get_self(c)),
     Tool("search_knowledge",
          "Semantic + keyword search over the owner's notes AND entities (people, events, "
          "messages, memories, custom types). Use it for open questions like 'what do I know "
          "about X'. Use query_entities instead when you need exact fields (dates, names). "
-         "Superseded/archived items are hidden unless include_superseded is true. "
+         "Superseded/archived items are hidden unless requested. "
          "Example: {\"q\": \"RAV4 collision sensor\", \"limit\": 5}.",
          _obj({"q": _STR, "limit": {"type": "integer", "minimum": 1, "maximum": 50},
                "kinds": {"type": "array", "items": {"type": "string", "enum": ["note", "entity"]}},
@@ -104,6 +184,7 @@ TOOLS: list[Tool] = [
                          "description": "Restrict to these entity types."},
                "tags": {"type": "array", "items": _STR},
                "include_superseded": {"type": "boolean"},
+               "include_archived": {"type": "boolean"},
                "since": {"type": "string", "description": "YYYY-MM-DD"},
                "until": {"type": "string", "description": "YYYY-MM-DD"}}, ["q"]),
          _search),
@@ -132,7 +213,8 @@ TOOLS: list[Tool] = [
     Tool("list_entity_types",
          "List entity types with their JSON Schema (fields) and unique key. Call this first to "
          "learn which fields can be used in create_entity and query_entities. Example: {}.",
-         _obj({}), lambda h, c, a, u: {"types": entities.list_types(c)}),
+         _obj({}), lambda h, c, a, u: {
+             "types": entities.list_types(c, agent_visible_only=True)}),
     Tool("create_entity_type",
          "Define a NEW kind of record (e.g. 'recipe', 'car'). Only when no existing type fits. "
          "json_schema: top-level type object, 1-50 properties of type string (format date or "
@@ -152,8 +234,16 @@ TOOLS: list[Tool] = [
          "supersede_entity. Example: {\"type\": \"person\", \"data\": {\"name\": \"Alice\", "
          "\"birthday\": \"1990-04-12\", \"relationship\": \"friend\"}}.",
          _obj({"type": _STR, "data": {"type": "object"}}, ["type", "data"]),
-         lambda h, c, a, u: {"entity": entities.create_entity(h, c, a["type"], a["data"], u)},
+         _create_entity,
          writes=True),
+    Tool("extend_entity_type",
+         "Propose an additive type extension with confirm=false first. Show the returned diff "
+         "to the owner, then call again with confirm=true only after explicit approval. "
+         "Use a note instead when approval is not given.",
+         _obj({"name": _STR, "add_properties": {"type": "object"},
+              "confirm": {"type": "boolean"}},
+             ["name", "add_properties"]),
+         _extend_entity_type, writes=True),
     Tool("query_entities",
          "Exact structured lookup of entities. Use for 'when', 'who', 'last time' questions; "
          "reason over the returned rows yourself. Fields must be top-level fields of the type. "
@@ -174,26 +264,24 @@ TOOLS: list[Tool] = [
          _query),
     Tool("get_entity", "Fetch one entity by id. Example: {\"id\": \"3f9a...\"}.",
          _obj({"id": _ID}, ["id"]),
-         lambda h, c, a, u: {"entity": entities.get_entity(c, a["id"])}),
+         lambda h, c, a, u: _get_entity(c, a["id"])),
     Tool("update_entity",
          "Change some fields of an entity in place (JSON Merge Patch: set a field to null to "
          "remove it; arrays are replaced whole). Use for corrections. Example: {\"id\": "
          "\"3f9a...\", \"patch\": {\"relationship\": \"colleague\"}}.",
          _obj({"id": _ID, "patch": {"type": "object"}}, ["id", "patch"]),
-         lambda h, c, a, u: {"entity": entities.patch_entity(h, c, a["id"], a["patch"], u)},
+         _patch_entity,
          writes=True),
     Tool("supersede_entity",
          "Replace an entity whose facts changed with a complete new document; the old one is "
          "kept as history. Example: {\"id\": \"3f9a...\", \"data\": {\"name\": \"Alice\", "
          "\"relationship\": \"ex-friend\"}, \"reason\": \"fell out\"}.",
          _obj({"id": _ID, "data": {"type": "object"}, "reason": _STR}, ["id", "data"]),
-         lambda h, c, a, u: {"entity": entities.supersede_entity(
-             h, c, a["id"], a["data"], a.get("reason"), u)}, writes=True),
+         _supersede_entity, writes=True),
     Tool("archive_entity",
          "Hide an entity from queries and search (undoable). Example: {\"id\": \"3f9a...\"}.",
          _obj({"id": _ID, "reason": _STR}, ["id"]),
-         lambda h, c, a, u: {"entity": entities.set_status(c, a["id"], "archived",
-                                                           a.get("reason"), u)}, writes=True),
+         _archive_entity, writes=True),
     Tool("forget_note", "PERMANENTLY delete a note and every trace of it. Cannot be undone. "
          "Example: {\"id\": \"3f9a...\"}.", _obj({"id": _ID, "reason": _STR}, ["id"]),
          _forget_note, writes=True, destructive=True),

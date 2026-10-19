@@ -62,6 +62,7 @@
   <section id="tab-search">
     <input id="q" type="search" placeholder="Search your notes" autocomplete="off">
     <label><input id="inc-sup" type="checkbox"> include superseded</label>
+    <label><input id="show-archived-search" type="checkbox"> Show archived</label>
     <div id="hits"></div>
   </section>
   <section id="tab-add" hidden>
@@ -94,6 +95,8 @@
     <select id="e-type"></select>
     <button id="e-new">New</button>
     <button id="e-newtype" class="secondary">New type</button>
+    <label><input id="e-show-archived" type="checkbox"> Show archived</label>
+    <p id="e-message" role="status" aria-live="polite"></p>
     <section id="e-type-details" aria-live="polite"></section>
     <div id="e-table"></div>
     <h4>Recent activity</h4>

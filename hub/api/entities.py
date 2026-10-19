@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from flask import Blueprint, current_app, jsonify, request
 
@@ -65,7 +66,20 @@ def types_patch(name: str):
 
 @bp.delete("/api/entity-types/<name>")
 def types_delete(name: str):
-    return _run(lambda h, c: (svc.delete_type(c, name, _actor()), jsonify({"ok": True}))[1])
+    if request.args.get("confirm") != "true":
+        raise validation("confirm=true is required to delete an entity type")
+    cascade = request.args.get("cascade", "false")
+    convert = request.args.get("convert_to_notes", "false")
+    if cascade not in ("true", "false") or convert not in ("true", "false"):
+        raise validation("cascade and convert_to_notes must be true or false")
+
+    def delete(hub, conn):
+        return jsonify({"ok": True, **svc.delete_type(
+            hub, conn, name, _actor(), cascade=cascade == "true",
+            convert_to_notes=convert == "true",
+        )})
+
+    return _run(delete)
 
 
 @bp.post("/api/entities")
@@ -74,8 +88,11 @@ def create():
     t = data.get("type")
     if not isinstance(t, str):
         raise validation("type is required")
+    uid = data.get("uid")
+    if uid is not None and (not isinstance(uid, str) or not re.fullmatch(r"[0-9a-f]{32}", uid)):
+        raise validation("uid must be 32 lowercase hexadecimal characters")
     return _run(lambda h, c: (
-        jsonify({"entity": svc.create_entity(h, c, t, data.get("data"), _actor())}), 201))
+        jsonify({"entity": svc.create_entity(h, c, t, data.get("data"), _actor(), uid=uid)}), 201))
 
 
 @bp.get("/api/entities")
@@ -130,8 +147,19 @@ def get(uid: str):
 def patch(uid: str):
     data = _body()
     force = request.args.get("force") == "true"
-    return _run(lambda h, c: jsonify(
-        {"entity": svc.patch_entity(h, c, uid, data, _actor(), force=force)}))
+    expected = request.headers.get("X-Expected-Updated-At")
+
+    def patch_entity(hub, conn):
+        if expected is not None:
+            current = svc.get_entity(conn, uid)
+            if expected != current["updated_at"]:
+                from ..errors import ApiError
+
+                raise ApiError("stale", "entity changed since it was loaded", 409,
+                               current=current)
+        return jsonify({"entity": svc.patch_entity(hub, conn, uid, data, _actor(), force=force)})
+
+    return _run(patch_entity)
 
 
 @bp.post("/api/entities/<uid>/supersede")

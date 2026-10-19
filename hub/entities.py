@@ -5,13 +5,14 @@ import json
 import re
 import sqlite3
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from jsonschema import Draft202012Validator, validators
 from jsonschema.exceptions import SchemaError, ValidationError
 
+from . import policy
 from .db import tx
 from .errors import ApiError, not_found, validation
 
@@ -33,6 +34,14 @@ def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _next_updated_at(previous: str) -> str:
+    now = datetime.now(UTC).replace(microsecond=0)
+    prior = datetime.fromisoformat(previous)
+    if now <= prior:
+        now = prior + timedelta(seconds=1)
+    return now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _format(_validator, fmt, instance, _schema):
     if not isinstance(instance, str):
         return
@@ -51,6 +60,10 @@ _Validator = validators.extend(Draft202012Validator, {"format": _format})
 
 
 def _audit(conn, actor: str, action: str, kind: str, uid: str | None, detail: str | None = None):
+    if kind == "entity" and action in {"create", "update", "archive", "restore", "supersede"}:
+        entity = conn.execute("SELECT type FROM entities WHERE uid=?", (uid,)).fetchone()
+        if entity and not policy.is_auditable(conn, entity["type"]):
+            return
     conn.execute(
         "INSERT INTO audit_log(actor,action,target_kind,target_uid,detail) VALUES(?,?,?,?,?)",
         (actor, action, kind, uid, detail),
@@ -118,10 +131,17 @@ def validate_type_schema(schema: object) -> dict:
 
 
 def _type_dict(r: sqlite3.Row) -> dict:
+    searchable = bool(r["embed"])
     return {
         "name": r["name"], "description": r["description"],
         "json_schema": json.loads(r["json_schema"]), "text_template": r["text_template"],
-        "unique_key": r["unique_key"], "embed": bool(r["embed"]), "builtin": bool(r["builtin"]),
+        "unique_key": r["unique_key"], "embed": searchable, "builtin": bool(r["builtin"]),
+        "policy": {
+            "searchable": searchable,
+            "capture_visible": bool(r["capture_visible"]),
+            "agent_visible": bool(r["agent_visible"]),
+            "auditable": bool(r["auditable"]),
+        },
         "schema_version": r["schema_version"],
         "created_at": r["created_at"], "updated_at": r["updated_at"],
     }
@@ -165,13 +185,22 @@ def seed_types(conn: sqlite3.Connection) -> None:
         )
 
 
-def list_types(conn: sqlite3.Connection) -> list[dict]:
+def list_types(conn: sqlite3.Connection, *, agent_visible_only: bool = False) -> list[dict]:
     out = []
     for r in conn.execute("SELECT * FROM entity_types ORDER BY builtin DESC, name"):
+        if agent_visible_only and not r["agent_visible"]:
+            continue
         d = _type_dict(r)
         d["count"] = conn.execute(
             "SELECT count(*) FROM entities WHERE type=? AND status='current'", (r["name"],)
         ).fetchone()[0]
+        d["counts"] = {
+            status: conn.execute(
+                "SELECT count(*) FROM entities WHERE type=? AND status=?",
+                (r["name"], status),
+            ).fetchone()[0]
+            for status in STATUSES
+        }
         out.append(d)
     return out
 
@@ -193,19 +222,51 @@ def _type_fields(data: dict, schema: dict) -> tuple[str, str | None, str | None,
     return desc, tmpl, ukey, bool(data.get("embed", True))
 
 
+def _policy_fields(data: dict, current: dict | None = None) -> dict[str, int]:
+    values = dict(current or {
+        "searchable": bool(data.get("embed", True)),
+        "capture_visible": True,
+        "agent_visible": True,
+        "auditable": True,
+    })
+    requested = data.get("policy", {})
+    if not isinstance(requested, dict):
+        raise validation("policy must be an object")
+    allowed = {"searchable", "capture_visible", "agent_visible", "auditable"}
+    if set(requested) - allowed:
+        raise validation("unknown policy key")
+    for key, value in requested.items():
+        if not isinstance(value, bool):
+            raise validation(f"policy.{key} must be a boolean")
+        values[key] = value
+    if "searchable" in requested:
+        if "embed" in data and bool(data["embed"]) != requested["searchable"]:
+            raise validation("embed and policy.searchable must match")
+        values["searchable"] = requested["searchable"]
+    elif "embed" in data:
+        values["searchable"] = bool(data["embed"])
+    return {key: int(values[key]) for key in allowed}
+
+
 def create_type(conn: sqlite3.Connection, data: dict, actor: str = "ui") -> dict:
     name = data.get("name")
     if not isinstance(name, str) or not NAME_RE.match(name):
         raise validation("name must match [a-z][a-z0-9_]* (max 40 chars)")
     schema = validate_type_schema(data.get("json_schema"))
     desc, tmpl, ukey, embed = _type_fields(data, schema)
+    flags = _policy_fields(data)
+    if "searchable" in data.get("policy", {}):
+        embed = bool(flags["searchable"])
+    else:
+        flags["searchable"] = int(embed)
     with tx(conn):
         if conn.execute("SELECT 1 FROM entity_types WHERE name=?", (name,)).fetchone():
             raise ApiError("conflict", "entity type already exists", 409)
         conn.execute(
-            "INSERT INTO entity_types(name,description,json_schema,text_template,unique_key,embed)"
-            " VALUES(?,?,?,?,?,?)",
-            (name, desc, json.dumps(schema), tmpl, ukey, int(embed)),
+            "INSERT INTO entity_types(name,description,json_schema,text_template,unique_key,embed,"
+            "capture_visible,agent_visible,auditable) VALUES(?,?,?,?,?,?,?,?,?)",
+            (name, desc, json.dumps(schema), tmpl, ukey, flags["searchable"],
+             flags["capture_visible"], flags["agent_visible"], flags["auditable"]),
         )
         conn.execute(
             "INSERT INTO entity_type_history(type,version,json_schema,change,actor) "
@@ -235,25 +296,123 @@ def patch_type(conn: sqlite3.Connection, name: str, data: dict, force: bool = Fa
     merged = {**cur, **{k: data[k] for k in ("description", "text_template", "unique_key", "embed")
                         if k in data}}
     desc, tmpl, ukey, embed = _type_fields(merged, schema)
+    flags = _policy_fields(data, cur["policy"])
+    embed = bool(flags["searchable"])
     with tx(conn):
         conn.execute(
             "UPDATE entity_types SET description=?, json_schema=?, text_template=?, unique_key=?,"
-            " embed=?, updated_at=? WHERE name=?",
-            (desc, json.dumps(schema), tmpl, ukey, int(embed), _now(), name),
+            " embed=?,capture_visible=?,agent_visible=?,auditable=?,updated_at=? WHERE name=?",
+            (desc, json.dumps(schema), tmpl, ukey, int(embed), flags["capture_visible"],
+             flags["agent_visible"], flags["auditable"], _now(), name),
         )
         _audit(conn, actor, "update", "entity_type", name)
     return get_type(conn, name)
 
 
-def delete_type(conn: sqlite3.Connection, name: str, actor: str = "ui") -> None:
+def _schema_references(schema: object, name: str) -> bool:
+    if isinstance(schema, dict):
+        if schema.get("x-ref") == name:
+            return True
+        return any(_schema_references(value, name) for value in schema.values())
+    if isinstance(schema, list):
+        return any(_schema_references(value, name) for value in schema)
+    return False
+
+
+def delete_type(hub: Hub, conn: sqlite3.Connection, name: str, actor: str = "ui", *,
+                cascade: bool = False, convert_to_notes: bool = False) -> dict:
     row = _type_row(conn, name)
+    counts = {
+        status: conn.execute(
+            "SELECT count(*) FROM entities WHERE type=? AND status=?", (name, status)
+        ).fetchone()[0]
+        for status in STATUSES
+    }
+    referenced_by = [
+        item["name"] for item in conn.execute(
+            "SELECT name,json_schema FROM entity_types WHERE name<>?", (name,)
+        ) if _schema_references(json.loads(item["json_schema"]), name)
+    ]
+    running = conn.execute(
+        "SELECT 1 FROM captures WHERE state='processing' LIMIT 1"
+    ).fetchone() is not None
+    reasons = []
     if row["builtin"]:
-        raise ApiError("conflict", "built-in types cannot be deleted", 409)
+        reasons.append({"kind": "builtin"})
+    if referenced_by:
+        reasons.append({"kind": "referenced_by", "types": referenced_by})
+    if running:
+        reasons.append({"kind": "capture_running"})
+    if any(counts.values()) and not cascade:
+        reasons.append({"kind": "entities", "counts": counts})
+    if reasons:
+        raise ApiError("dependency", "entity type cannot be deleted", 409,
+                       reasons=reasons, referenced_by=referenced_by, counts=counts)
+
+    converted = []
+    if convert_to_notes:
+        if not cascade:
+            raise validation("convert_to_notes requires cascade=true")
+        from . import notes
+
+        notes._require_embeddings(hub)
+        for entity_row in conn.execute(
+            "SELECT * FROM entities WHERE type=? ORDER BY id", (name,)
+        ).fetchall():
+            data = json.loads(entity_row["data"])
+            title = f"{name}: {entity_title(name, data)}"[:200]
+            snapshot = {
+                "id": entity_row["uid"], "type": entity_row["type"],
+                "status": entity_row["status"], "status_reason": entity_row["status_reason"],
+                "source": entity_row["source"], "created_at": entity_row["created_at"],
+                "updated_at": entity_row["updated_at"], "data": data,
+            }
+            content = (
+                f"Converted from entity type `{name}`.\n\n"
+                f"```json\n{json.dumps(snapshot, ensure_ascii=False, indent=2)}\n```"
+            )
+            chunks, vecs = notes._prepare(hub, title, content)
+            converted.append((entity_row, title, content, chunks, vecs))
+
     with tx(conn):
-        if conn.execute("SELECT 1 FROM entities WHERE type=? LIMIT 1", (name,)).fetchone():
-            raise ApiError("conflict", "entities of this type exist", 409)
+        if cascade:
+            if convert_to_notes:
+                from . import notes
+
+                note_uids = []
+                for _entity, title, content, chunks, vecs in converted:
+                    _note_id, note_uid = notes._insert(
+                        hub, conn, title=title, content=content, tags=[name],
+                        happened_at=None, source="ui", chunks=chunks, vecs=vecs,
+                    )
+                    notes._audit(conn, actor, "create", note_uid, "converted from entity")
+                    note_uids.append(note_uid)
+            else:
+                note_uids = []
+            entity_rows = conn.execute(
+                "SELECT id FROM entities WHERE type=?", (name,)
+            ).fetchall()
+            chunk_ids = [
+                chunk["id"] for entity in entity_rows for chunk in conn.execute(
+                    "SELECT id FROM chunks WHERE owner_kind='entity' AND owner_id=?",
+                    (entity["id"],),
+                )
+            ]
+            hub.store.delete(conn, chunk_ids)
+            conn.execute(
+                "DELETE FROM chunks WHERE owner_kind='entity' AND owner_id IN "
+                "(SELECT id FROM entities WHERE type=?)", (name,)
+            )
+            conn.execute("DELETE FROM entities WHERE type=?", (name,))
         conn.execute("DELETE FROM entity_types WHERE name=?", (name,))
-        _audit(conn, actor, "delete", "entity_type", name)
+        _audit(conn, actor, "type_delete", "entity_type", name,
+               json.dumps({"counts": counts, "converted_to_notes": len(converted)}))
+    if convert_to_notes:
+        from . import notes
+
+        for note_uid in note_uids:
+            notes._mirror(hub, conn, note_uid)
+    return {"type": name, "counts": counts, "converted_to_notes": len(converted)}
 
 
 # ------------------------------------------------------------- rendering
@@ -319,10 +478,12 @@ def validate_data(type_row: sqlite3.Row, data: object) -> dict:
     errs = sorted(_Validator(json.loads(type_row["json_schema"])).iter_errors(data),
                   key=lambda e: list(map(str, e.path)))
     if errs:
+        first_path = ".".join(map(str, errs[0].path))
         msg = "; ".join(
             (".".join(map(str, e.path)) + ": " if e.path else "") + e.message for e in errs[:5]
         )
-        raise validation(f"data does not match type schema: {msg}")
+        raise ApiError("validation_error", f"data does not match type schema: {msg}", 400,
+                       **({"path": first_path} if first_path else {}))
     return data
 
 
@@ -412,8 +573,12 @@ def create_entity(hub: Hub, conn, type_name: str, data: object, actor: str = "ap
         self_svc.assert_change(conn, None, data)
     prepared = _prepare(hub, trow, data) if precomputed is _PRECOMPUTED_UNSET else precomputed
     uid = uid or uuid.uuid4().hex
+    if not isinstance(uid, str) or not re.fullmatch(r"[0-9a-f]{32}", uid):
+        raise validation("uid must be 32 lowercase hexadecimal characters")
 
     def write() -> None:
+        if conn.execute("SELECT 1 FROM entities WHERE uid=?", (uid,)).fetchone():
+            raise ApiError("conflict", "entity uid already exists", 409)
         _check_unique(conn, trow, data, None)
         eid = conn.execute(
             "INSERT INTO entities(uid,type,data,source) VALUES(?,?,?,?) RETURNING id",
@@ -467,7 +632,8 @@ def patch_entity(hub: Hub, conn, uid: str, patch: object, actor: str = "api", *,
         if row["status"] == "current":
             _check_unique(conn, trow, data, row["id"])
         conn.execute("UPDATE entities SET data=?, updated_at=? WHERE id=?",
-                     (json.dumps(data, ensure_ascii=False), _now(), row["id"]))
+                     (json.dumps(data, ensure_ascii=False),
+                      _next_updated_at(row["updated_at"]), row["id"]))
         _write_chunk(hub, conn, row["id"], prepared)
         if row["type"] == "person" and row["status"] == "current":
             from . import self as self_svc
@@ -505,7 +671,7 @@ def supersede_entity(hub: Hub, conn, uid: str, data: object, reason: str | None 
     def write() -> None:
         # the old row stops being current first, so a unique_key may be reused by the new one
         conn.execute("UPDATE entities SET status='superseded', status_reason=?, updated_at=? "
-                     "WHERE id=?", (reason, _now(), old["id"]))
+                     "WHERE id=?", (reason, _next_updated_at(old["updated_at"]), old["id"]))
         _check_unique(conn, trow, data, None)
         nid = conn.execute(
             "INSERT INTO entities(uid,type,data,source) VALUES(?,?,?,?) RETURNING id",
@@ -549,7 +715,7 @@ def set_status(conn, uid: str, status: str, reason: str | None = None, actor: st
 
                 self_svc.assert_change(conn, None, data)
         conn.execute("UPDATE entities SET status=?, status_reason=?, updated_at=? WHERE id=?",
-                     (status, reason, _now(), row["id"]))
+                     (status, reason, _next_updated_at(row["updated_at"]), row["id"]))
         _audit(conn, actor, "archive" if status == "archived" else "restore", "entity", uid)
         if row["type"] == "person":
             from . import self as self_svc
@@ -584,10 +750,11 @@ def list_entities(conn, type_name=None, status=None, limit: int = 50, offset: in
         where.append("type=?")
         params.append(type_name)
     if status:
-        if status not in STATUSES:
+        statuses = list(dict.fromkeys(status.split(",")))
+        if not statuses or any(value not in STATUSES for value in statuses):
             raise validation("invalid status")
-        where.append("status=?")
-        params.append(status)
+        where.append(f"status IN ({','.join('?' for _ in statuses)})")
+        params.extend(statuses)
     w = (" WHERE " + " AND ".join(where)) if where else ""
     total = conn.execute(f"SELECT count(*) FROM entities{w}", params).fetchone()[0]
     rows = conn.execute(

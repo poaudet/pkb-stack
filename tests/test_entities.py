@@ -23,7 +23,8 @@ def test_seed_types_and_validation(client):
     assert mkent(client, "person", {"name": "A", "birthday": "1990-02-03"}).status_code == 201
     assert mkent(client, "message", {"contact": "x", "at": "nope", "text": "t"}).status_code == 400
     assert mkent(client, "nope", {"a": 1}).status_code == 404
-    assert client.delete("/api/entity-types/person").status_code == 409
+    assert client.delete("/api/entity-types/person").status_code == 400
+    assert client.delete("/api/entity-types/person?confirm=true").status_code == 409
 
 
 def test_unique_key_and_supersede(client):
@@ -142,7 +143,8 @@ def test_custom_type_rules(client):
     assert client.patch("/api/entity-types/car", json={"json_schema": less}).status_code == 409
     assert client.patch("/api/entity-types/car?force=true", json={"json_schema": less}
                         ).status_code == 200
-    assert client.delete("/api/entity-types/car").status_code == 409
+    assert client.delete("/api/entity-types/car").status_code == 400
+    assert client.delete("/api/entity-types/car?confirm=true").status_code == 409
 
 
 def test_template_never_formats(client):

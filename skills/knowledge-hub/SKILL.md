@@ -141,6 +141,10 @@ User: "What pets do I have and how are they doing?"
   `update_entity`; if it's truly new information that supersedes the old, use `supersede_entity`.
 - **New kind of record**: `create_entity_type(name, json_schema, text_template)`. The schema
   is validated; invalid schemas return 400.
+- **A durable fact needs a field that is missing**: call
+  `extend_entity_type(name, add_properties, confirm: false)` first. Show the owner the
+  returned diff and only call again with `confirm: true` after explicit approval. If the
+  owner does not approve, keep the fact in a note instead.
 - **Free-text journal, thought, or story**: `create_note(content, preprocess: true)`. Notes go
   to a review queue; the owner approves them before they're embedded and searchable. (If
   `preprocess: false`, the note goes straight to the knowledge base; use this only if the
@@ -228,6 +232,9 @@ the memory.
   var.
 
 Always read `error.message` for specifics; it's designed to guide the next move.
+
+`extend_entity_type` is additive, limited to optional fields, and defaults to a dry run.
+Never use it to change an existing field or add a required field.
 
 ## Tips for effectiveness
 

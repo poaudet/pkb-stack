@@ -11,6 +11,8 @@ from jsonschema import Draft202012Validator
 from .. import entities, entity_types, notes
 from .. import self as self_svc
 from ..db import fold
+from ..errors import ApiError
+from ..policy import capture_excluded_types
 
 ALLOWED = {
     "create_entity", "update_entity", "supersede_entity", "create_entity_type",
@@ -416,6 +418,40 @@ def _op_base(op: dict, ordinal: int) -> dict:
     }
 
 
+def _is_excluded_operation(conn, operation: dict, excluded: set[str],
+                           owner_uid: str | None = None) -> bool:
+    kind = operation.get("op")
+    if not isinstance(kind, str) or kind not in {
+        "create_entity", "update_entity", "supersede_entity", "extend_entity_type",
+    }:
+        return False
+    type_name = operation.get("type")
+    if isinstance(type_name, str) and type_name in excluded:
+        return True
+    target = operation.get("target")
+    if target == "SELF":
+        target = owner_uid
+    if isinstance(target, str):
+        row = conn.execute("SELECT type FROM entities WHERE uid=?", (target,)).fetchone()
+        return bool(row and row["type"] in excluded)
+    return False
+
+
+def assert_no_excluded_operations(conn, raw_plan: dict, settings=None) -> None:
+    settings = settings or object()
+    excluded = capture_excluded_types(
+        conn, getattr(settings, "capture_exclude_types", "")
+    )
+    owner = self_svc.get_self(conn)["self"]
+    owner_uid = owner["id"] if owner else None
+    raw_ops = raw_plan.get("ops", []) if isinstance(raw_plan, dict) else []
+    if isinstance(raw_ops, list) and any(
+        isinstance(op, dict) and _is_excluded_operation(conn, op, excluded, owner_uid)
+        for op in raw_ops
+    ):
+        raise ApiError("type_excluded", "capture operation targets an excluded type", 409)
+
+
 def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
               max_ops: int = 20, settings=None) -> dict:
     if not isinstance(raw_plan, dict):
@@ -453,14 +489,19 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
     extension_versions: dict[str, int] = {}
     max_new_fields = max(1, getattr(settings, "capture_max_new_fields", 5))
     allow_schema = getattr(settings, "capture_allow_schema_changes", True)
-    excluded_types = {
-        item.strip() for item in getattr(settings, "capture_exclude_types", "place_visit").split(",")
-    }
+    excluded_types = capture_excluded_types(
+        conn, getattr(settings, "capture_exclude_types", "")
+    )
+    owner_uid = owner["id"] if owner else None
     total_new_fields = 0
     extension_count = 0
 
     for index, candidate_op in enumerate(raw_ops):
         if not isinstance(candidate_op, dict) or candidate_op.get("op") != "extend_entity_type":
+            continue
+        if _is_excluded_operation(conn, candidate_op, excluded_types, owner_uid):
+            dropped_extensions.add(index)
+            warnings.append("type_excluded")
             continue
         if not allow_schema:
             dropped_extensions.add(index)
@@ -471,7 +512,7 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
             extension_errors[index] = "at most two schema extensions are allowed"
             continue
         name = candidate_op.get("type")
-        if not isinstance(name, str) or name not in all_types or name in excluded_types:
+        if not isinstance(name, str) or name not in all_types:
             extension_errors[index] = "extension type is unknown or excluded"
             continue
         additions = candidate_op.get("add_properties")
@@ -515,6 +556,9 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
             warnings.append(f"dropped unsupported operation: {str(kind)[:40]}")
             continue
         if index - 1 in dropped_extensions:
+            continue
+        if _is_excluded_operation(conn, raw_op, excluded_types, owner_uid):
+            warnings.append("type_excluded")
             continue
 
         forced_error = None

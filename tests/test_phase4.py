@@ -116,6 +116,11 @@ def test_mcp_bridge(app):
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
+    created = app.test_client().post("/api/entity-types", json={
+        "name": "mcp_type",
+        "json_schema": {"type": "object", "properties": {"title": {"type": "string"}}},
+    })
+    assert created.status_code == 201
     srv = make_server("127.0.0.1", 0, app, threaded=True)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     params = StdioServerParameters(
@@ -125,17 +130,20 @@ def test_mcp_bridge(app):
     async def go():
         async with stdio_client(params) as (r, w), ClientSession(r, w) as sess:
             await sess.initialize()
-            names = {t.name for t in (await sess.list_tools()).tools}
+            mcp_tools = (await sess.list_tools()).tools
+            names = {t.name for t in mcp_tools}
             res = await sess.call_tool("search_knowledge", {"q": "anything"})
             bad = await sess.call_tool("no_such_tool", {})
             bad_args = await sess.call_tool("create_note", {})
-            return names, res, bad, bad_args
+            return names, mcp_tools, res, bad, bad_args
 
     try:
-        names, res, bad, bad_args = anyio.run(go)
+        names, mcp_tools, res, bad, bad_args = anyio.run(go)
     finally:
         srv.shutdown()
     assert {"search_knowledge", "create_note", "get_self"} <= names
+    extend = next(tool for tool in mcp_tools if tool.name == "extend_entity_type")
+    assert extend.input_schema["properties"]["add_properties"]["type"] == "object"
     assert not res.is_error and isinstance(json.loads(res.content[0].text), (dict, list))
     assert bad.is_error
     assert bad_args.is_error

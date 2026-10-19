@@ -136,7 +136,7 @@ def extend(conn, name: str, add_properties: object, *, actor: str,
         row = _type_row(conn, name)
         preview = _validate_properties(conn, row, add_properties, limit)
         schema = preview["schema"]
-        origin = "capture" if capture_uid else "manual"
+        origin = "capture" if capture_uid else actor if actor.startswith("agent:") else "manual"
         for prop in preview["added"].values():
             prop["x-origin"] = origin
             prop["x-added"] = datetime.now(UTC).date().isoformat()

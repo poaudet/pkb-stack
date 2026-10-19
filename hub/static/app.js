@@ -4,9 +4,13 @@ import { initCapture, leaveCapture, routeCapture } from "./capture/page.js";
 import { confirmDialog } from "./capture/dialog.js";
 import { renderOwnerChip, renderOwnerForm } from "./owner.js";
 import { refreshTypes, renderTypeDetails } from "./types.js";
+import { createEntityEditor, diffEntity } from "./entity-editor.mjs";
 
 const $ = (id) => document.getElementById(id);
 const tabNames = new Set(["capture", "search", "add", "review", "browse", "entities", "settings", "status"]);
+const showArchived = localStorage.getItem("pkb.showArchived") === "true";
+$("show-archived-search").checked = showArchived;
+$("e-show-archived").checked = showArchived;
 
 function el(tag, props, ...kids) {
   const e = document.createElement(tag);
@@ -65,9 +69,19 @@ async function doSearch() {
   try {
     const res = await api("/api/search", {
       method: "POST",
-      body: JSON.stringify({ q, limit: 20, include_superseded: $("inc-sup").checked }),
+      body: JSON.stringify({
+        q, limit: 20, include_superseded: $("inc-sup").checked,
+        include_archived: $("show-archived-search").checked,
+      }),
     });
-    for (const h of res.hits) box.append(card(h, h.snippet));
+    for (const h of res.hits) {
+      const result = card(h, h.snippet);
+      if (h.status === "archived") {
+        result.title = h.status_reason || "Archived";
+        result.classList.add("old");
+      }
+      box.append(result);
+    }
     if (!res.hits.length) box.append(el("p", { textContent: "No results." }));
   } catch (e) {
     box.append(el("p", { textContent: e.message }));
@@ -205,6 +219,16 @@ for (const b of document.querySelectorAll("#tabs button")) {
 }
 $("q").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(doSearch, 300); });
 $("inc-sup").addEventListener("change", doSearch);
+$("show-archived-search").addEventListener("change", () => {
+  localStorage.setItem("pkb.showArchived", String($("show-archived-search").checked));
+  $("e-show-archived").checked = $("show-archived-search").checked;
+  doSearch();
+});
+$("e-show-archived").addEventListener("change", () => {
+  localStorage.setItem("pkb.showArchived", String($("e-show-archived").checked));
+  $("show-archived-search").checked = $("e-show-archived").checked;
+  loadEntityRows().catch((error) => { $("e-table").textContent = error.message; });
+});
 $("add-save").addEventListener("click", saveNote);
 $("add-to-capture").addEventListener("click", () => {
   const text = $("add-content").value;
@@ -335,9 +359,42 @@ async function runOwnerProtected(action) {
   }
 }
 
-async function openEntity(id) {
+async function entityReferenceOptions(schema) {
+  const options = {};
+  const refs = new Set(Object.values(schema.properties || {}).map((field) => field["x-ref"])
+    .filter(Boolean));
+  for (const type of refs) {
+    const rows = [];
+    let total = 0;
+    let offset = 0;
+    do {
+      const page = await api(`/api/entities?type=${encodeURIComponent(type)}`
+        + `&status=current&limit=200&offset=${offset}`);
+      rows.push(...page.items);
+      total = page.total;
+      offset += page.items.length;
+    } while (offset < total && offset > 0);
+    const labels = {};
+    for (let index = 0; index < rows.length; index += 100) {
+      const ids = rows.slice(index, index + 100).map((row) => row.id);
+      Object.assign(labels, (await api("/api/entities/labels", {
+        method: "POST", body: JSON.stringify({ ids }),
+      })).labels);
+    }
+    options[type] = rows.map((row) => ({
+      id: row.id, label: labels[row.id]?.label || row.id,
+    }));
+  }
+  return options;
+}
+
+async function openEntity(id, editMode = false) {
   const dlg = $("entity-dialog");
   const { entity } = await api("/api/entities/" + encodeURIComponent(id));
+  let type = entityTypes.find((item) => item.name === entity.type);
+  if (!type) {
+    type = (await api(`/api/entity-types/${encodeURIComponent(entity.type)}`)).type;
+  }
   dlg.replaceChildren();
   const msg = el("p", { className: "meta" });
   const act = async (fn) => {
@@ -350,9 +407,15 @@ async function openEntity(id) {
       renderOwnerChip($("capture-owner-detail"));
     } catch (e) { msg.textContent = e.message; }
   };
-  const arch = el("button", { className: "secondary",
-    textContent: entity.status === "archived" ? "Restore" : "Archive" });
-  arch.addEventListener("click", () => act(() => runOwnerProtected((force) => api(
+  const edit = el("button", { className: "secondary", textContent: "Edit" });
+  edit.addEventListener("click", () => enterEdit().catch((error) => {
+    msg.textContent = error.message;
+  }));
+  const arch = entity.status === "current" || entity.status === "archived"
+    ? el("button", { className: "secondary",
+      textContent: entity.status === "archived" ? "Restore" : "Archive" })
+    : null;
+  arch?.addEventListener("click", () => act(() => runOwnerProtected((force) => api(
     "/api/entities/" + id + "/" + (entity.status === "archived" ? "restore" : "archive")
       + (force ? "?force=true" : ""),
     { method: "POST", body: "{}" },
@@ -367,9 +430,103 @@ async function openEntity(id) {
   });
   const close = el("button", { className: "secondary", textContent: "Close" });
   close.addEventListener("click", () => dlg.close());
-  dlg.append(el("span", { className: "badge", textContent: entity.type + " · " + entity.status }),
-    el("pre", { textContent: JSON.stringify(entity.data, null, 2) }), arch, del, close, msg);
+  const banner = entity.status === "archived"
+    ? el("p", { className: "capture-warning", textContent: "Archived" }) : null;
+  if (entity.status === "current") dlg.append(edit);
+  dlg.append(...[banner, el("span", {
+    className: "badge", textContent: entity.type + " · " + entity.status,
+  }), el("pre", { textContent: JSON.stringify(entity.data, null, 2) }), arch, del, close, msg]
+    .filter(Boolean));
   dlg.showModal();
+  if (editMode && entity.status === "current") await enterEdit();
+
+  async function enterEdit() {
+    const refOptions = await entityReferenceOptions(type.json_schema);
+    const editor = createEntityEditor(type.json_schema, entity.data, refOptions);
+    const message = el("p", { className: "meta", role: "status" });
+    const save = el("button", { type: "submit", textContent: "Save changes" });
+    const cancel = el("button", { type: "button", className: "secondary", textContent: "Cancel" });
+    cancel.addEventListener("click", () => {
+      dlg.close();
+      openEntity(id);
+    });
+    const currentBody = () => {
+      const values = editor.values();
+      const missing = editor.required.filter((field) => !Object.hasOwn(values, field));
+      if (missing.length) throw new Error(`Required field: ${missing.join(", ")}`);
+      return diffEntity(entity.data, values, editor.required);
+    };
+    const finishSave = async (body, overwrite = false) => {
+      if (!Object.keys(body).length) {
+        dlg.close();
+        return;
+      }
+      save.disabled = true;
+      try {
+        const response = await api(`/api/entities/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          headers: overwrite ? {} : { "X-Expected-Updated-At": entity.updated_at },
+          body: JSON.stringify(body),
+        });
+        const scroll = window.scrollY;
+        await loadEntityRows();
+        window.scrollTo(0, scroll);
+        await doSearch();
+        dlg.close();
+        await openEntity(response.entity.id);
+      } catch (error) {
+        message.textContent = error.message;
+        if (error.code === "stale") {
+          const reload = el("button", { type: "button", className: "secondary", textContent: "Reload" });
+          reload.addEventListener("click", () => {
+            dlg.close();
+            openEntity(id);
+          });
+          const overwriteButton = el("button", { type: "button", className: "danger", textContent: "Overwrite" });
+          overwriteButton.addEventListener("click", async () => {
+            const confirmed = await confirmDialog(
+              "Overwrite newer changes",
+              "Resend these changes without the concurrency check?",
+              "Overwrite",
+            );
+            if (confirmed) await finishSave(body, true);
+          });
+          message.append(reload, overwriteButton);
+        } else if (error.code === "needs_reindex") {
+          message.className = "capture-warning";
+        } else if (error.details?.existing) {
+          const link = el("button", {
+            type: "button", className: "secondary", textContent: "Open existing entity",
+          });
+          link.addEventListener("click", () => {
+            dlg.close();
+            openEntity(error.details.existing);
+          });
+          message.append(link);
+        } else if (error.details?.path) {
+          const field = document.getElementById(`entity-field-${error.details.path}`);
+          if (field) field.setAttribute("aria-invalid", "true");
+          message.textContent += ` (${error.details.path})`;
+        }
+      } finally {
+        save.disabled = false;
+      }
+    };
+    editor.form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        await finishSave(currentBody());
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    });
+    editor.form.append(save, cancel, message);
+    dlg.replaceChildren(
+      el("h3", { textContent: `Edit ${entity.type}` }),
+      editor.form,
+    );
+    editor.form.querySelector("input, textarea, select")?.focus();
+  }
 }
 
 let entityTypes = [];
@@ -381,7 +538,8 @@ async function loadEntities() {
     const cur = sel.value;
     sel.replaceChildren(...entityTypes.map((t) => el("option", {
       value: t.name,
-      textContent: `${t.name} (v${t.schema_version || 1}) · ${t.count}`,
+      textContent: `${t.name} (v${t.schema_version || 1}) · ${showArchived
+        ? `${t.counts.current} current · ${t.counts.archived} archived` : t.count}`,
     })));
     if (cur) sel.value = cur;
     renderTypeDetails(sel.value, $("e-type-details"));
@@ -401,11 +559,46 @@ async function loadEntityRows() {
   const box = $("e-table");
   box.replaceChildren();
   if (!sel_type()) return;
-  const res = await api("/api/entities?limit=100&type=" + encodeURIComponent(sel_type()));
+  const statuses = $("e-show-archived").checked ? "current,archived" : "current";
+  const res = await api(`/api/entities?limit=100&type=${encodeURIComponent(sel_type())}`
+    + `&status=${statuses}`);
+  const counts = entityTypes.find((type) => type.name === sel_type())?.counts;
+  $("e-message").textContent = $("e-show-archived").checked && counts
+    ? `${counts.current} current · ${counts.archived} archived` : "";
   for (const e of res.items) {
     const c = el("div", { className: "card" + (e.status !== "current" ? " old" : "") });
+    if (e.status_reason) c.title = e.status_reason;
     c.append(el("div", { className: "snip", textContent: summarize(e.data) }));
-    c.append(el("div", { className: "meta", textContent: e.status + " · " + e.source }));
+    c.append(el("div", { className: "meta" },
+      el("span", { className: "badge", textContent: e.status }),
+      document.createTextNode(" · " + e.source)));
+    if (e.status === "current") {
+      const edit = el("button", {
+        type: "button", className: "secondary", textContent: "Edit",
+      });
+      edit.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openEntity(e.id, true);
+      });
+      c.append(edit);
+    }
+    if (e.status === "archived") {
+      const restore = el("button", {
+        type: "button", className: "secondary", textContent: "Restore",
+      });
+      restore.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        try {
+          await api(`/api/entities/${encodeURIComponent(e.id)}/restore`, {
+            method: "POST", body: "{}",
+          });
+          await loadEntities();
+        } catch (error) {
+          $("e-message").textContent = error.message;
+        }
+      });
+      c.append(restore);
+    }
     c.addEventListener("click", () => openEntity(e.id));
     box.append(c);
   }
@@ -494,6 +687,11 @@ $("e-type").addEventListener("change", () => {
 });
 $("e-new").addEventListener("click", openNewEntity);
 $("e-newtype").addEventListener("click", openNewType);
+window.addEventListener("entity-type-deleted", async (event) => {
+  await loadEntities();
+  $("e-message").textContent = `Deleted ${event.detail.type}: `
+    + Object.entries(event.detail.counts).map(([status, count]) => `${count} ${status}`).join(" · ");
+});
 
 function routeType(name) {
   let typeName;
