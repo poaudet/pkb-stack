@@ -113,7 +113,6 @@ class Settings:
             capture_candidates=_int("CAPTURE_CANDIDATES", 25),
             capture_exclude_types=_str(
                 "CAPTURE_EXCLUDE_TYPES",
-                "place_visit,task,grocery_list,grocery_item,plainlist_settings",
             ),
             capture_block_secrets=_bool("CAPTURE_BLOCK_SECRETS", True),
             capture_daily_call_limit=_int("CAPTURE_DAILY_CALL_LIMIT", 60),
