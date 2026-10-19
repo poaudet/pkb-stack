@@ -404,6 +404,6 @@ def test_policy_migration_preserves_existing_type(tmp_path):
             ("legacy_type",),
         ).fetchone()
         assert tuple(row) == (1, 1, 1, 1)
-        assert db.get_meta(conn, "schema_version") == "7"
+        assert db.get_meta(conn, "schema_version") == "8"
     finally:
         conn.close()

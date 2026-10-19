@@ -8,8 +8,16 @@ from dataclasses import dataclass
 from ..config import Settings
 
 
+def _sleep(seconds: float) -> None:
+    time.sleep(seconds)
+
+
 class CaptureLLMError(Exception):
     """Capture request failed without including owner or model content."""
+
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 @dataclass
@@ -38,7 +46,16 @@ def _settings(settings: Settings) -> tuple[str, str, str, int, dict[str, str]]:
     return base_url, api_key, model, timeout, headers
 
 
-def call(settings: Settings, messages: list[dict[str, str]], before_request) -> LLMResult:
+def _retry_after(exc: Exception, attempt: int) -> float:
+    headers = getattr(getattr(exc, "response", None), "headers", None) or {}
+    try:
+        return min(60.0, max(0.0, float(headers.get("retry-after", ""))))
+    except (TypeError, ValueError):
+        return float(min(30, 2 * attempt))
+
+
+def call(settings: Settings, messages: list[dict[str, str]], before_request,
+         *, max_attempts: int = 2, schema: dict | None = None) -> LLMResult:
     from openai import APIStatusError, BadRequestError, OpenAI
 
     base_url, api_key, model, timeout, headers = _settings(settings)
@@ -46,12 +63,16 @@ def call(settings: Settings, messages: list[dict[str, str]], before_request) -> 
         raise CaptureLLMError("capture LLM is not configured")
     client = OpenAI(base_url=base_url or None, api_key=api_key or "not-needed",
                     timeout=timeout, max_retries=0, default_headers=headers or None)
-    json_mode = True
-    retries = 0
+    formats: list[dict | None] = []
+    if schema is not None:
+        formats.append({"type": "json_schema", "json_schema": {
+            "name": "capture_plan", "schema": schema, "strict": False}})
+    formats.extend([{"type": "json_object"}, None])
+    attempt = 1
     while True:
         before_request()
         try:
-            kwargs = {"response_format": {"type": "json_object"}} if json_mode else {}
+            kwargs = {"response_format": formats[0]} if formats[0] else {}
             response = client.chat.completions.create(
                 model=model, temperature=0.1, max_tokens=1500, messages=messages, **kwargs
             )
@@ -62,16 +83,18 @@ def call(settings: Settings, messages: list[dict[str, str]], before_request) -> 
                 getattr(usage, "completion_tokens", None) if usage else None,
             )
         except BadRequestError as exc:
-            if json_mode:
-                json_mode = False
+            if len(formats) > 1:
+                formats.pop(0)
                 continue
-            raise CaptureLLMError(f"request failed: {type(exc).__name__}") from exc
+            raise CaptureLLMError(f"request failed: {type(exc).__name__}", 400) from exc
         except APIStatusError as exc:
-            if exc.status_code in (429, 500, 502, 503, 504) and retries == 0:
-                retries += 1
-                time.sleep(2)
+            if exc.status_code in (429, 500, 502, 503, 504) and attempt < max_attempts:
+                _sleep(_retry_after(exc, attempt))
+                attempt += 1
                 continue
-            raise CaptureLLMError(f"request failed: HTTP {exc.status_code}") from exc
+            raise CaptureLLMError(
+                f"request failed: HTTP {exc.status_code}", exc.status_code
+            ) from exc
         except CaptureLLMError:
             raise
         except Exception as exc:

@@ -90,10 +90,10 @@ def consume_call(conn, settings: Settings) -> None:
 
 
 def gate(conn, settings: Settings, text: str, *, allow_secrets: bool = False,
-         allow_duplicate: bool = False) -> str:
+         allow_duplicate: bool = False, max_chars: int | None = None) -> str:
     if not isinstance(text, str):
         raise ApiError("validation_error", "text must be a string", 400)
-    if len(text) > settings.capture_max_chars:
+    if len(text) > (max_chars or settings.capture_max_chars):
         raise ApiError("too_long", "text exceeds CAPTURE_MAX_CHARS; save it as a note", 400)
     if settings.capture_block_secrets and not allow_secrets:
         kind = secret_kind(text)

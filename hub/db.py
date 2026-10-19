@@ -161,8 +161,35 @@ def _m7(conn: sqlite3.Connection) -> None:
         )
 
 
+def _m8(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(captures)")}
+    for name, ddl in (
+        ("mode", "TEXT NOT NULL DEFAULT 'short'"),
+        ("chunks_total", "INTEGER NOT NULL DEFAULT 0"),
+        ("chunks_done", "INTEGER NOT NULL DEFAULT 0"),
+        ("op_meta", "TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(op_meta))"),
+    ):
+        if name not in columns:
+            conn.execute(f"ALTER TABLE captures ADD COLUMN {name} {ddl}")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS capture_chunks(
+          job_id INTEGER NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
+          idx INTEGER NOT NULL,
+          start_char INTEGER NOT NULL,
+          end_char INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending','running','done','failed')),
+          plan_json TEXT CHECK (plan_json IS NULL OR json_valid(plan_json)),
+          error_code TEXT,
+          PRIMARY KEY(job_id, idx)
+        )
+        """
+    )
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
-    _m1, _m2, _m3, _m4, _m5, _m6, _m7,
+    _m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8,
 ]
 
 

@@ -146,7 +146,7 @@ def test_fold_and_capture_schema_migration(tmp_path):
             "SELECT name FROM sqlite_master WHERE type='table'"
         )}
         assert {"captures", "capture_ops", "capture_usage"} <= tables
-        assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "7"
+        assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "8"
         indexes = {row[0] for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index'"
         )}
@@ -261,14 +261,15 @@ def test_json_mode_fallback_and_single_repair(tmp_path, stub):
     uid = submit(client)
     capture = wait_capture(client, uid)
     assert capture["state"] == "ready"
-    assert len(stub.calls) == 4
-    assert "response_format" in stub.calls[0]
-    assert "response_format" not in stub.calls[1]
-    assert "response_format" in stub.calls[2]
-    assert "response_format" not in stub.calls[3]
-    assert "Return the corrected JSON object only" in stub.calls[3]["messages"][-1]["content"]
+    assert len(stub.calls) == 6
+    assert stub.calls[0]["response_format"]["type"] == "json_schema"
+    assert stub.calls[1]["response_format"]["type"] == "json_object"
+    assert "response_format" not in stub.calls[2]
+    assert "response_format" in stub.calls[3]
+    assert "response_format" not in stub.calls[5]
+    assert "Return the corrected JSON object only" in stub.calls[5]["messages"][-1]["content"]
     config = client.get("/api/capture/config").get_json()
-    assert config["calls_today"] == 4 and config["local"] is True
+    assert config["calls_today"] == 6 and config["local"] is True
 
 
 def test_capture_gates_duplicate_save_note_and_skip_ai(tmp_path, stub):

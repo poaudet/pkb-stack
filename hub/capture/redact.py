@@ -18,8 +18,8 @@ _LICENCE = re.compile(
     re.IGNORECASE,
 )
 _BANK = re.compile(
-    r"(\b(?:account|IBAN)(?:\s+(?:number|no\.?|#))?\s*[:#]?\s*(?:is\s+)?)"
-    r"((?=[A-Z0-9 \-]*\d)[A-Z0-9][A-Z0-9 \-]{4,33}[A-Z0-9])(?![A-Za-z0-9])",
+    r"(\b(?:account|IBAN)\b(?:\s+(?:number|no\.?|#))?\s*[:#]?\s*(?:is\s+)?)"
+    r"([A-Z]{2}\d{2}[A-Z0-9 ]{10,30}[A-Z0-9]|\d[\d \-]{4,32}\d)(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
 

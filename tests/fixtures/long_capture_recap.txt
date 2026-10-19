@@ -1,0 +1,31 @@
+Sunday 18 October 2026, recap and to-dos
+
+Morning
+Went to the market on Rue Saint-Denis with Julie. Bought apples, two bunches of kale and a block of old cheddar. The cheddar was too expensive, so I'll check the other shop next time.
+
+Julie said the bike shop on Mont-Royal can fix the rear derailleur on Thursday if I drop it off before noon. I need to call them first to confirm the slot.
+
+Afternoon
+Finished the first draft of the route planner README. The traffic caching section still needs an example with a real response payload. Mark said the retry logic was too clever. I agreed to simplify it before the Wednesday review.
+
+Note to self: the staging server certificate expires on 2 November. Renew it before then, not on the day.
+
+Evening
+Dinner at Maman's place. Her neighbour, Mr. Tremblay, is moving to Quebec City in December. I offered to help with the move on the 6th if he needs a second pair of hands.
+
+Admin
+Renewed the car insurance online. The premium is 1,120 dollars for the year, paid with the Visa ending in 4417.
+My health card number is RAMP 1234 5678 90. Keep it safe, but do not store it anywhere.
+I'm allergic to shellfish, so remember that for restaurants.
+
+Groceries for the week
+Oat milk, two lemons, baby spinach, a dozen eggs, basmati rice, dish soap, and dark roast coffee beans from the bulk store.
+
+Plans for next week
+Book a dentist cleaning before 31 October.
+Send the quarterly expense report to the accountant by Friday 23 October.
+Review the notes service pull request on Tuesday at 14:00.
+Start reading the book Julie lent me, the one about bridges.
+
+Someday
+Learn to make sourdough bread properly. Look into a second-hand electric keyboard, no budget yet.

@@ -10,7 +10,7 @@ from .. import entities, entity_types, notes
 from .. import self as self_svc
 from ..db import tx
 from ..errors import ApiError
-from . import context, jobs, plan
+from . import jobs, plan
 
 
 def _hash_data(data: dict) -> str:
@@ -98,6 +98,10 @@ def _plan_input(stored: dict, body: dict) -> tuple[dict, dict[str, dict]]:
     return raw_plan, updates
 
 
+def _renormalize(hub, conn, capture_row, raw_plan: dict) -> dict:
+    return jobs.renormalize(hub, conn, capture_row, raw_plan)
+
+
 def _entity_data(conn, uid: str) -> tuple[dict, dict]:
     row = conn.execute(
         "SELECT * FROM entities WHERE uid=?", (uid,)
@@ -120,16 +124,7 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
         raise ApiError("validation_error", "allow_new_types must be a boolean", 400)
     if set(body) - {"ops", "keep_note", "allow_new_types"}:
         raise ApiError("validation_error", "unsupported apply field", 400)
-    raw_text = capture_row["raw_text"] or ""
-    candidates = context.build_candidates(
-        hub, conn, raw_text, hub.settings.capture_candidates,
-        hub.settings.capture_exclude_types,
-    ) if raw_text else []
-    normalized = plan.normalize(
-        conn, raw_plan, raw_text, candidates,
-        max_ops=max(1, min(20, hub.settings.capture_max_ops)),
-        settings=hub.settings,
-    )
+    normalized = _renormalize(hub, conn, capture_row, raw_plan)
     for item in normalized["ops"]:
         override = overrides.get(item["id"], {})
         if "include" in override:
@@ -139,7 +134,7 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
         ):
             raise ApiError("validation_error", "allow_new_types is required", 400,
                            op_id=item["id"])
-        if item["include"] and item["status"] == "invalid":
+        if item["include"] and item["status"] in ("invalid", "rejected"):
             raise ApiError("validation_error", "included operation is invalid", 400,
                            op_id=item["id"], errors=item["errors"])
 
@@ -413,16 +408,7 @@ def validate(hub, conn, uid: str, body: dict) -> dict:
         raise ApiError("validation_error", "allow_new_types must be a boolean", 400)
     if set(body) - {"ops", "keep_note", "allow_new_types"}:
         raise ApiError("validation_error", "unsupported validation field", 400)
-    raw_text = capture_row["raw_text"] or ""
-    candidates = context.build_candidates(
-        hub, conn, raw_text, hub.settings.capture_candidates,
-        hub.settings.capture_exclude_types,
-    ) if raw_text else []
-    normalized = plan.normalize(
-        conn, raw_plan, raw_text, candidates,
-        max_ops=max(1, min(20, hub.settings.capture_max_ops)),
-        settings=hub.settings,
-    )
+    normalized = _renormalize(hub, conn, capture_row, raw_plan)
     by_id = {op["id"]: op for op in normalized["ops"]}
     for op_id, override in overrides.items():
         if "include" in override:
