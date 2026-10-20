@@ -56,6 +56,7 @@ class Settings:
     capture_llm_model: str = ""
     capture_llm_extra_headers: str = ""
     capture_llm_timeout: int = 120
+    capture_llm_max_tokens: int = 4000
     capture_max_chars: int = 8000
     capture_max_ops: int = 20
     capture_candidates: int = 25
@@ -115,6 +116,7 @@ class Settings:
             capture_llm_model=_str("CAPTURE_LLM_MODEL"),
             capture_llm_extra_headers=_str("CAPTURE_LLM_EXTRA_HEADERS"),
             capture_llm_timeout=_int("CAPTURE_LLM_TIMEOUT", 120),
+            capture_llm_max_tokens=_int("CAPTURE_LLM_MAX_TOKENS", 4000),
             capture_max_chars=_int("CAPTURE_MAX_CHARS", 8000),
             capture_max_ops=_int("CAPTURE_MAX_OPS", 20),
             capture_candidates=_int("CAPTURE_CANDIDATES", 25),

@@ -147,7 +147,7 @@ chars (test it).
 
 ### 6.4 LLM call
 Reuse llm.py with CAPTURE_LLM_* overrides (and extra headers): temperature
-0.1, max_tokens 1500, `response_format={"type":"json_object"}` with fallback
+0.1, max_tokens `CAPTURE_LLM_MAX_TOKENS` (default 4000), `response_format={"type":"json_object"}` with fallback
 without it on 400, tolerant parse, validate Appendix B. On invalid output
 make ONE repair call appending the validation errors ("Return the corrected
 JSON object only"). Each attempt increments `capture_usage`. Record
