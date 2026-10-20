@@ -26,6 +26,7 @@ class LLMResult:
     model: str
     prompt_tokens: int | None
     completion_tokens: int | None
+    finish_reason: str | None = None
 
 
 def _settings(settings: Settings) -> tuple[str, str, str, int, dict[str, str]]:
@@ -81,6 +82,7 @@ def call(settings: Settings, messages: list[dict[str, str]], before_request,
                 response.choices[0].message.content or "", response.model or model,
                 getattr(usage, "prompt_tokens", None) if usage else None,
                 getattr(usage, "completion_tokens", None) if usage else None,
+                getattr(response.choices[0], "finish_reason", None),
             )
         except BadRequestError as exc:
             if len(formats) > 1:

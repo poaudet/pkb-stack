@@ -497,15 +497,70 @@ class CaptureQueue:
 class SchemaInvalid(ValueError):
     """The model reply failed schema validation twice."""
 
+    def __init__(self, error: ValueError) -> None:
+        if isinstance(error, plan.PlanSchemaError):
+            self.code = "schema_invalid"
+            self.issues = error.issues
+            detail = ",".join(f"{path}:{keyword}" for path, keyword in self.issues[:5])
+            message = f"{self.code}:{detail}" if detail else self.code
+        elif isinstance(error, PlanParseError):
+            self.code = "parse_invalid"
+            self.issues = []
+            message = self.code
+        elif isinstance(error, plan.OperationLimitError):
+            self.code = "operation_limit"
+            self.issues = []
+            message = self.code
+        else:
+            self.code = "validation_error"
+            self.issues = []
+            message = self.code
+        super().__init__(message)
 
-def chunk_error_code(exc: Exception) -> str:
+
+class PlanParseError(ValueError):
+    """The model reply could not be parsed as a JSON plan."""
+
+    def __init__(self) -> None:
+        super().__init__("parse_invalid")
+
+
+def _diagnostic_code(exc: Exception) -> str:
     if isinstance(exc, SchemaInvalid):
-        return "schema_invalid"
+        if exc.code == "schema_invalid" and exc.issues:
+            detail = ",".join(f"{path}:{keyword}" for path, keyword in exc.issues[:5])
+            return f"schema_invalid:{detail}"
+        return exc.code
+    if isinstance(exc, plan.PlanSchemaError):
+        detail = ",".join(f"{path}:{keyword}" for path, keyword in exc.issues[:5])
+        return f"schema_invalid:{detail}" if detail else "schema_invalid"
+    if isinstance(exc, PlanParseError):
+        return "parse_invalid"
+    if isinstance(exc, plan.OperationLimitError):
+        return "operation_limit"
+    if isinstance(exc, ValueError):
+        return "validation_error"
     if isinstance(exc, ApiError):
         return exc.code
     if isinstance(exc, llm.CaptureLLMError):
         return f"llm_http_{exc.status_code}" if exc.status_code else "llm_error"
     return "capture_failed"
+
+
+def _log_plan_failure(exc: Exception, result: llm.LLMResult | None) -> None:
+    log.warning(
+        "capture plan attempt failed: code=%s issues=%d op_count=%s op_limit=%s "
+        "prompt_tokens=%s completion_tokens=%s finish_reason=%s",
+        _diagnostic_code(exc), len(getattr(exc, "issues", [])),
+        getattr(exc, "count", None), getattr(exc, "limit", None),
+        result.prompt_tokens if result else None,
+        result.completion_tokens if result else None,
+        result.finish_reason if result else None,
+    )
+
+
+def chunk_error_code(exc: Exception) -> str:
+    return _diagnostic_code(exc)[:300]
 
 
 def _working_set(conn, job_id: int, before_idx: int) -> str:
@@ -652,7 +707,8 @@ def extract_plan(hub, conn, *, text: str, hint: str | None, answers: dict, today
         result, normalized = request_plan(msgs)
         prompt_tokens, completion_tokens = result.prompt_tokens, result.completion_tokens
     except ValueError as exc:
-        errors = str(exc)[:1000]
+        _log_plan_failure(exc, last_result)
+        errors = _diagnostic_code(exc)
         assistant = redact.redact(last_result.text)[0] if last_result else ""
         prompt_tokens = last_result.prompt_tokens if last_result else None
         completion_tokens = last_result.completion_tokens if last_result else None
@@ -665,7 +721,8 @@ def extract_plan(hub, conn, *, text: str, hint: str | None, answers: dict, today
         try:
             result, normalized = request_plan(repair)
         except ValueError as again:
-            raise SchemaInvalid(str(again)[:300]) from again
+            _log_plan_failure(again, last_result)
+            raise SchemaInvalid(again) from None
         prompt_tokens = _sum_tokens(prompt_tokens, result.prompt_tokens)
         completion_tokens = _sum_tokens(completion_tokens, result.completion_tokens)
     return {"plan": normalized, "model": result.model, "prompt_tokens": prompt_tokens,
@@ -678,22 +735,24 @@ def _parse_reply(text: str) -> dict:
     clean = re.sub(r"```(?:json)?", "", text or "")
     start, end = clean.find("{"), clean.rfind("}")
     if start < 0 or end <= start:
-        raise ValueError("reply has no JSON object")
-    parsed = json.loads(clean[start:end + 1])
+        raise PlanParseError()
+    try:
+        parsed = json.loads(clean[start:end + 1])
+    except json.JSONDecodeError:
+        raise PlanParseError() from None
     if not isinstance(parsed, dict):
-        raise TypeError("reply is not an object")
+        raise PlanParseError()
     return parsed
 
 
 def _safe_error(exc: Exception) -> str:
     if isinstance(exc, ApiError):
         return exc.code
-    if isinstance(exc, SchemaInvalid):
-        return "invalid plan: schema_invalid"
-    if isinstance(exc, ValueError):
-        return f"invalid plan: {type(exc).__name__}"
+    if isinstance(exc, (SchemaInvalid, PlanParseError, plan.PlanSchemaError,
+                        plan.OperationLimitError, ValueError)):
+        return f"invalid plan: {_diagnostic_code(exc)}"
     if isinstance(exc, llm.CaptureLLMError):
-        return str(exc)[:300]
+        return _diagnostic_code(exc)
     return f"capture failed: {type(exc).__name__}"
 
 

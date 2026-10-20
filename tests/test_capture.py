@@ -280,6 +280,21 @@ def test_json_mode_fallback_and_single_repair(tmp_path, stub):
     assert config["calls_today"] == 6 and config["local"] is True
 
 
+def test_failed_plan_stores_only_safe_diagnostic_code(tmp_path, stub, caplog):
+    stub.replies = ["private malformed model reply", "private malformed model reply"]
+    _app, client = make_capture_client(tmp_path, stub)
+    with caplog.at_level("WARNING", logger="hub.capture.jobs"):
+        capture = wait_capture(client, submit(client, "private capture text"))
+
+    assert capture["state"] == "failed"
+    assert capture["error"] == "invalid plan: parse_invalid"
+    assert "private" not in capture["error"]
+    assert "private" not in caplog.text
+    assert "code=parse_invalid" in caplog.text
+    assert "completion_tokens=7" in caplog.text
+    assert "finish_reason=stop" in caplog.text
+
+
 def test_capture_gates_duplicate_save_note_and_skip_ai(tmp_path, stub):
     _app, client = make_capture_client(tmp_path, stub, capture_max_chars=20)
     too_long = client.post("/api/capture", json={"text": "x" * 21})

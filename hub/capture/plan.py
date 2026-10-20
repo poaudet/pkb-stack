@@ -27,6 +27,25 @@ class OpReject(ValueError):
         self.code = code
         self.message = message
 
+
+class PlanSchemaError(ValueError):
+    """A plan failed JSON Schema validation; issues contain paths and keywords only."""
+
+    def __init__(self, issues: list[tuple[str, str]]) -> None:
+        self.issues = issues
+        detail = ",".join(f"{path}:{keyword}" for path, keyword in issues)
+        super().__init__(f"schema_invalid:{detail}")
+
+
+class OperationLimitError(ValueError):
+    """A plan exceeds the configured operation limit."""
+
+    def __init__(self, count: int, limit: int) -> None:
+        self.count = count
+        self.limit = limit
+        super().__init__("operation_limit:ops")
+
+
 ALLOWED = {
     "create_entity", "update_entity", "supersede_entity", "create_entity_type",
     "extend_entity_type",
@@ -507,7 +526,7 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
         raise TypeError("ops must be an array")
     keep_note = bool(raw_plan.get("keep_note"))
     if len(raw_ops) + int(keep_note) > max_ops:
-        raise ValueError(f"plan has more than {max_ops} operations")
+        raise OperationLimitError(len(raw_ops) + int(keep_note), max_ops)
     settings = settings or object()
 
     all_types = _type_map(conn)
@@ -1063,4 +1082,14 @@ def validate(raw_plan: dict) -> None:
     errors = sorted(Draft202012Validator(plan_schema()).iter_errors(raw_plan),
                     key=lambda error: list(map(str, error.path)))
     if errors:
-        raise ValueError("; ".join(error.message for error in errors[:5]))
+        issues: list[tuple[str, str]] = []
+        for error in errors[:20]:
+            path = list(map(str, error.path))
+            if error.validator == "required" and isinstance(error.instance, dict):
+                missing = sorted(set(error.validator_value) - error.instance.keys())
+                issues.extend(
+                    (".".join([*path, name]) or "$", "required") for name in missing
+                )
+                continue
+            issues.append((".".join(path) or "$", str(error.validator)))
+        raise PlanSchemaError(issues)
