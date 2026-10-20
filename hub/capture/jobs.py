@@ -411,7 +411,7 @@ class CaptureQueue:
                 out = extract_plan(
                     self.hub, conn, text=raw_text, hint=row["hint"],
                     answers=json.loads(row["answers"]), today=row["as_of"],
-                    max_ops=max(1, min(20, self.hub.settings.capture_max_ops)),
+                    max_ops=max(1, self.hub.settings.capture_max_ops),
                 )
                 normalized = out["plan"]
                 with tx(conn):
@@ -438,7 +438,7 @@ class CaptureQueue:
                 (job_id,),
             )
         chunks = _chunk_rows(conn, row)
-        max_ops = max(1, min(20, self.hub.settings.capture_max_ops))
+        max_ops = max(1, self.hub.settings.capture_max_ops)
         for chunk in chunks:
             if chunk["status"] != "pending":
                 continue
