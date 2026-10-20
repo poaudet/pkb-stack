@@ -122,8 +122,8 @@ Task with a deadline: "Send the invoice to Sam by 2030-03-05." ->
 {"id":"o1","op":"create_entity","type":"task","ref":"invoice","data":{"title":"Send the invoice to Sam","due_date":"2030-03-05","state":"pending"},"why":"deadline"}
 Weekly list: "Groceries this week: two pears, a dozen eggs." ->
 {"id":"o1","op":"create_entity","type":"grocery_list","ref":"week","data":{"name":"Groceries for the week"}} and
-{"id":"o2","op":"create_entity","type":"grocery_item","data":{"name":"pears","quantity":2,"list":{"$ref":"week"}}},
-{"id":"o3","op":"create_entity","type":"grocery_item","data":{"name":"eggs","quantity":12,"unit":"eggs","list":{"$ref":"week"}}}
+{"id":"o2","op":"create_entity","type":"grocery_item","data":{"name":"pears","quantity":2,"list":"list_ref"}},
+{"id":"o3","op":"create_entity","type":"grocery_item","data":{"name":"eggs","quantity":12,"unit":"eggs","list":"list_ref"}}
 Wish, not a habit: "Learn to juggle someday." -> no op (at most the note).
 Left out: "Card number [REDACTED:payment_card]." -> no op; the marker is never copied.
 """
