@@ -75,7 +75,7 @@ def call(settings: Settings, messages: list[dict[str, str]], before_request,
         try:
             kwargs = {"response_format": formats[0]} if formats[0] else {}
             response = client.chat.completions.create(
-                model=model, temperature=0.1, max_tokens=1500, messages=messages, **kwargs
+                model=model, temperature=0.1, max_tokens=max(1, settings.capture_llm_max_tokens), messages=messages, **kwargs
             )
             usage = response.usage
             return LLMResult(

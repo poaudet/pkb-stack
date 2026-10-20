@@ -518,6 +518,13 @@ class SchemaInvalid(ValueError):
         super().__init__(message)
 
 
+class PlanTruncated(ValueError):
+    """The model reply hit the output token limit."""
+
+    def __init__(self) -> None:
+        super().__init__("truncated")
+
+
 class PlanParseError(ValueError):
     """The model reply could not be parsed as a JSON plan."""
 
@@ -534,6 +541,8 @@ def _diagnostic_code(exc: Exception) -> str:
     if isinstance(exc, plan.PlanSchemaError):
         detail = ",".join(f"{path}:{keyword}" for path, keyword in exc.issues[:5])
         return f"schema_invalid:{detail}" if detail else "schema_invalid"
+    if isinstance(exc, PlanTruncated):
+        return "truncated"
     if isinstance(exc, PlanParseError):
         return "parse_invalid"
     if isinstance(exc, plan.OperationLimitError):
@@ -691,6 +700,8 @@ def extract_plan(hub, conn, *, text: str, hint: str | None, answers: dict, today
             max_attempts=max_attempts, schema=schema,
         )
         last_result = result
+        if result.finish_reason == "length":
+            raise PlanTruncated()
         parsed = _parse_reply(redact.redact(result.text)[0])
         plan.validate(parsed)
         if chunk:
@@ -708,6 +719,8 @@ def extract_plan(hub, conn, *, text: str, hint: str | None, answers: dict, today
         prompt_tokens, completion_tokens = result.prompt_tokens, result.completion_tokens
     except ValueError as exc:
         _log_plan_failure(exc, last_result)
+        if isinstance(exc, PlanTruncated):
+            raise
         errors = _diagnostic_code(exc)
         assistant = redact.redact(last_result.text)[0] if last_result else ""
         prompt_tokens = last_result.prompt_tokens if last_result else None
@@ -722,6 +735,8 @@ def extract_plan(hub, conn, *, text: str, hint: str | None, answers: dict, today
             result, normalized = request_plan(repair)
         except ValueError as again:
             _log_plan_failure(again, last_result)
+            if isinstance(again, PlanTruncated):
+                raise
             raise SchemaInvalid(again) from None
         prompt_tokens = _sum_tokens(prompt_tokens, result.prompt_tokens)
         completion_tokens = _sum_tokens(completion_tokens, result.completion_tokens)
@@ -748,7 +763,7 @@ def _parse_reply(text: str) -> dict:
 def _safe_error(exc: Exception) -> str:
     if isinstance(exc, ApiError):
         return exc.code
-    if isinstance(exc, (SchemaInvalid, PlanParseError, plan.PlanSchemaError,
+    if isinstance(exc, (SchemaInvalid, PlanParseError, PlanTruncated, plan.PlanSchemaError,
                         plan.OperationLimitError, ValueError)):
         return f"invalid plan: {_diagnostic_code(exc)}"
     if isinstance(exc, llm.CaptureLLMError):
