@@ -101,7 +101,7 @@ def test_failed_chunk_is_partial_then_retry_recovers(world):
     capture = sf.wait(client, submit(client, long_text(6), mode="long").get_json()["capture"]["id"])
     assert capture["state"] == "failed" and capture["partial"]
     failed = [c for c in capture["chunks"] if c["status"] == "failed"]
-    assert [c["idx"] for c in failed] == [1] and failed[0]["error_code"] == "schema_invalid"
+    assert [c["idx"] for c in failed] == [1] and failed[0]["error_code"] == "parse_invalid"
     assert capture["chunks_done"] == capture["chunks_total"] - 1
 
     broken["on"] = False
