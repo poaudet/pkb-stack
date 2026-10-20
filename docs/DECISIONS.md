@@ -245,3 +245,25 @@
 - Migration 8 adds `captures.mode/chunks_total/chunks_done/op_meta` and `capture_chunks`.
 - New routes: POST `/api/capture/<id>/cancel`, `/continue`, `/chunks/<idx>/retry`.
 - No dependencies were added.
+
+## Capture long-text diagnostics (phase 1)
+- Confirmed the existing lifecycle: `create` stores and queues a job; short jobs call
+  `extract_plan` once; long jobs call it per chunk through `_run_chunk`, then finalize and merge.
+  `extract_plan` requests structured output, redacts the reply before parsing, validates, then
+  normalizes. A `ValueError` triggers one repair request.
+- Confirmed the strict schema rejects summary length over 200, more than 5 questions, more than 20
+  model ops, unsupported op names, invalid refs, and missing op ids. Normalization separately limits
+  ops (including `keep_note`) and truncates questions. The short path and chunk path both cap
+  `CAPTURE_MAX_OPS` at 20; the schema also hard-codes `ops.maxItems=20`.
+- In this sandbox the three variables were unset: `CAPTURE_MAX_OPS=20`,
+  `CAPTURE_CHUNK_TARGET_CHARS=3000`, and `CAPTURE_LONG_THRESHOLD_CHARS=4000` from Settings defaults.
+  Thus an approximately 2,300-character input uses short mode automatically; forced long mode
+  would make one chunk at the default target. The checked-in synthetic recap fixture is 1,700
+  characters and is not the stated Appendix A input.
+- Phase 1 adds value-free schema path/keyword issues, parse and operation-limit error categories,
+  and safe persisted diagnostics. Failure logs include only diagnostic codes, issue/op counts,
+  token counts, and finish reason. The current code now retains finish reason for this purpose.
+- No capture LLM model is configured in the sandbox. Deterministic capture tests use the existing
+  local stub; no live model call or live result was observed. Truncation, redaction corruption, and
+  provider-specific schema behavior remain unconfirmed; these diagnostics do not change plan rules
+  or operation limits.

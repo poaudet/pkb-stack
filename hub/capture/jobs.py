@@ -512,7 +512,7 @@ class SchemaInvalid(ValueError):
             self.issues = []
             message = self.code
         else:
-            self.code = "schema_invalid"
+            self.code = "validation_error"
             self.issues = []
             message = self.code
         super().__init__(message)
@@ -538,6 +538,8 @@ def _diagnostic_code(exc: Exception) -> str:
         return "parse_invalid"
     if isinstance(exc, plan.OperationLimitError):
         return "operation_limit"
+    if isinstance(exc, ValueError):
+        return "validation_error"
     if isinstance(exc, ApiError):
         return exc.code
     if isinstance(exc, llm.CaptureLLMError):
@@ -558,7 +560,7 @@ def _log_plan_failure(exc: Exception, result: llm.LLMResult | None) -> None:
 
 
 def chunk_error_code(exc: Exception) -> str:
-    return _diagnostic_code(exc)
+    return _diagnostic_code(exc)[:300]
 
 
 def _working_set(conn, job_id: int, before_idx: int) -> str:
@@ -747,7 +749,7 @@ def _safe_error(exc: Exception) -> str:
     if isinstance(exc, ApiError):
         return exc.code
     if isinstance(exc, (SchemaInvalid, PlanParseError, plan.PlanSchemaError,
-                        plan.OperationLimitError)):
+                        plan.OperationLimitError, ValueError)):
         return f"invalid plan: {_diagnostic_code(exc)}"
     if isinstance(exc, llm.CaptureLLMError):
         return _diagnostic_code(exc)

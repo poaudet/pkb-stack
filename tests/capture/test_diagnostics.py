@@ -43,6 +43,9 @@ def test_parse_error_does_not_include_reply_values():
 
     assert "private" not in str(caught.value)
     assert "sensitive" not in str(caught.value)
+    wrapped = jobs.SchemaInvalid(caught.value)
+    assert jobs.chunk_error_code(wrapped) == "parse_invalid"
+    assert jobs._safe_error(wrapped) == "invalid plan: parse_invalid"
 
 
 def test_operation_limit_has_a_distinct_error():
