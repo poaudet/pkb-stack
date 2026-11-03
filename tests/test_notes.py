@@ -117,11 +117,12 @@ def test_validation_and_filters(client):
 
 
 def test_auth(mk):
-    c = mk(api_token="s3cret").test_client()
+    token = "s3cret" * 6
+    c = mk(api_token=token).test_client()
     assert c.get("/health").status_code == 200
     assert c.get("/api/stats").status_code == 401
-    assert c.get("/api/stats", headers={"Authorization": "Bearer nope"}).status_code == 401
-    assert c.get("/api/stats", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+    assert c.get("/api/stats", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    assert c.get("/api/stats", headers={"Authorization": f"Bearer {token}"}).status_code == 200
 
 
 def test_backup_and_stats(client):

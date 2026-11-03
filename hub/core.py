@@ -42,7 +42,7 @@ class Hub:
             birthday.migrate(self, conn)
         finally:
             conn.close()
-        if not settings.api_token:
+        if not settings.api_token and settings.auth_mode in ("", "none"):
             log.warning("API_TOKEN is empty: the API is unauthenticated. Set it before exposing.")
 
     def llm_settings(self, purpose: str) -> Settings:

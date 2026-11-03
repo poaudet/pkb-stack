@@ -10,7 +10,7 @@ from hub import create_app
 from scripts.stub_llm import make_server as make_stub_server
 from tests.conftest import make_settings
 
-TOKEN = "e2e-test-token"
+TOKEN = "e2e-test-token-0123456789-abcdefghij"
 
 
 @pytest.fixture

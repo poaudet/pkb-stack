@@ -5,7 +5,7 @@ import os
 import re
 from datetime import UTC, datetime
 
-from flask import Blueprint, current_app, jsonify, request, send_file
+from flask import Blueprint, current_app, g, jsonify, request, send_file
 
 from .. import guard, maintenance
 from ..errors import validation
@@ -45,6 +45,8 @@ def health():
     from .capture import _llm_info
 
     hub = current_app.extensions["hub"]
+    if not g.get("authenticated", True):
+        return jsonify({"status": "needs_reindex" if hub.needs_reindex else "ok"})
     conn = hub.conn()
     try:
         return jsonify({

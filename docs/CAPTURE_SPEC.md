@@ -259,7 +259,7 @@ Deep links by hash: `#capture`, `#capture/<id>`, `#entity/<id>`,
 │ Questions: [answer input] [Regenerate] │
 │ ▢ Create person — Matt                 │
 │     name [Matt]  relationship [...]    │
-│ ▢ Update person — Mistelle             │
+│ ▢ Update person — Biscuit             │
 │     interests: + walks   (diff table)  │
 │ ▢ Create event — PMT launch            │
 │     people: (chip) Matt                │
@@ -329,7 +329,7 @@ response + expected normalized plan.
   created person, no note.
 - G2 existing person candidate: event created with the person's id in
   `people`; a patch adding `interests` unions with existing values.
-- G3 French input ("J'avais une chatte Tequila née le 24 juin 2010 ..."):
+- G3 French input ("J'avais une chatte Pepper née le 24 juin 2010 ..."):
   French text values, ISO dates, keys English.
 - G4 missing required field -> op `invalid` + a question.
 - G5 injection: stub returns an `archive_entity` op and a bad `$ref` ->

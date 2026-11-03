@@ -177,7 +177,11 @@ Key variables defined in `.env.example`:
 |---|---|---|
 | `BIND_ADDR` | `127.0.0.1` | Network interface to bind (use `0.0.0.0` only with `API_TOKEN`). |
 | `PORT` | `5000` | Port for the Hub web server. |
-| `API_TOKEN` | _empty_ | ****** required for API / tool requests when set. |
+| `API_TOKEN` | _empty_ | Shared secret, at least 32 characters. Required for API / tool requests when set. |
+| `PKB_AUTH_MODE` | `token` if `API_TOKEN` is set, else `none` | `token`, `proxy` (trust a header from your reverse proxy) or `none`. |
+| `PKB_AUTH_PROXY_HEADER` | `X-Forwarded-User` | Header trusted in `proxy` mode. |
+| `PKB_BATCH_MAX_OPS` | `100` | Most operations accepted by `POST /api/batch`. |
+| `PKB_GUARD_<DETECTOR>` | `redact` | `redact`, `block` or `off` per sensitive-data detector; see `docs/GUARD_CONFIG.md`. |
 | `EMBED_BACKEND` | `local` | Embedding backend: `local` (fastembed), `openai`, or `fake` (testing). |
 | `EMBED_MODEL` | `intfloat/multilingual-e5-small` | Hugging Face model or OpenAI embedding model name. |
 | `MIRROR_MARKDOWN` | `true` | Maintain human-readable `.md` mirrors under `/data/notes`. |
@@ -289,14 +293,29 @@ Pre-built Docker images are published to the GitHub Container Registry (GHCR) up
 - **MCP Bridge**: `ghcr.io/poaudet/pkb-stack/mcp:latest`
 
 Automated workflows:
-- `.github/workflows/ci.yml`: Runs linter, test suite, and image build checks on pull requests and pushes.
-- `.github/workflows/publish.yml`: Builds and pushes multi-tag images to GHCR on releases, version tags, and main branch updates.
+- `.github/workflows/ci.yml`: Lint, tests, gitleaks secret scan, image builds without push, and a container smoke test on pull requests and pushes to `main`.
+- `.github/workflows/publish.yml`: Builds and pushes images to GHCR only on `v*` tags (semver tags plus `latest`).
+
+All actions are pinned to commit SHAs.
 
 ---
 
 ## Security & Privacy Notice
 
-- **Single-User Architecture**: Designed for personal data storage. Authentication is enforced via a single shared bearer token (`API_TOKEN`).
-- **Network Isolation**: By default, services bind to `127.0.0.1`. Never expose the application directly to the public internet without an authenticating reverse proxy (e.g. Caddy, Traefik, Nginx) enforcing HTTPS.
-- **Sensitive Content Logging**: The application explicitly suppresses note content and entity bodies from logs above `DEBUG` level.
-- **Database Safety**: Raw runtime databases (`*.db`, `*.db-wal`) and data directories are excluded from git tracking and container images via `.gitignore` and `.dockerignore`.
+- **Privacy**: All data stays in your `DATA_DIR` (SQLite plus markdown mirrors). Nothing leaves your machine unless you configure a remote embedding or LLM endpoint (`EMBED_BACKEND=openai`, `LLM_*`, `CAPTURE_LLM_*`); any OpenAI-compatible server, including local ones, works. A sensitive-data guard redacts or blocks secrets before storage and before text is sent to a model.
+- **Auth modes** (`PKB_AUTH_MODE`):
+  - `token`: bearer `API_TOKEN` (32+ characters, constant-time compare, failures rate limited to 10 per minute per address). The web UI signs in at `/login` and keeps a signed, HttpOnly, SameSite=Strict cookie.
+  - `proxy`: trust `PKB_AUTH_PROXY_HEADER` set by your authenticating reverse proxy. Only expose the hub through that proxy.
+  - `none`: no authentication; loopback use only.
+- **Public paths**: only `/health` (status only when unauthenticated), `/login` and `/logout`.
+- **Network Isolation**: Services bind to `127.0.0.1` by default. Put an HTTPS reverse proxy in front before exposing the hub.
+- **Logging**: Note and entity content is never logged above `DEBUG`.
+- **Database Safety**: `*.db`, `*.db-wal` and `data/` are excluded by `.gitignore` and `.dockerignore`.
+- **Backup/restore**: see "Backup & Recovery" above. Destructive migrations write a `.bak` copy first.
+- **Reporting vulnerabilities**: see `SECURITY.md`.
+
+### Upgrade notes
+- `API_TOKEN` shorter than 32 characters now stops startup.
+- Unauthenticated `/health` returns only `{"status": ...}`.
+- Browsers without a token are redirected to `/login`; scripts keep using `Authorization: Bearer`.
+- Batch writes: `POST /api/batch` and the `batch` MCP tool (see `docs/API_REFERENCE.md`).

@@ -22,6 +22,9 @@ def create_app(settings=None, embedder=None):
     guard_config = guard.load(block_secrets=settings.capture_block_secrets)
     guard.configure(guard_config)
     guard.log_startup(guard_config)
+    from .auth import resolve_mode
+
+    resolve_mode(settings.auth_mode, settings.api_token, settings.auth_proxy_header)
     app = Flask(__name__, static_folder="static", static_url_path="/static")
     app.config["MAX_CONTENT_LENGTH"] = settings.max_body_mb * 1024 * 1024
     hub = Hub(settings, embedder)
@@ -38,7 +41,7 @@ def create_app(settings=None, embedder=None):
     from .reindex import Reindexer
 
     hub.reindexer = Reindexer(hub)
-    init_auth(app, settings.api_token)
+    init_auth(app, settings.api_token, settings.auth_mode, settings.auth_proxy_header)
     for m in (admin, batch, capture, entities, llm_settings, notes, pending, search, self_api, tools):
         app.register_blueprint(m.bp)
 

@@ -243,14 +243,14 @@ def test_pipeline_g1_apply_refs_and_undo(tmp_path, stub):
 def test_french_values_and_iso_dates_survive_normalization(tmp_path, stub):
     _app, client = make_capture_client(tmp_path, stub)
     stub.reply = json.dumps({
-        "summary": "Une chatte, Tequila, est née le 24 juin 2010.",
+        "summary": "Une chatte, Pepper, est née le 24 juin 2010.",
         "ops": [{
             "id": "p1", "op": "create_entity", "type": "person",
-            "data": {"name": "Tequila", "relationship": "chatte", "birthday": "2010-06-24"},
+            "data": {"name": "Pepper", "relationship": "chatte", "birthday": "2010-06-24"},
         }],
         "keep_note": False, "questions": [],
     }, ensure_ascii=False)
-    uid = submit(client, "J'avais une chatte Tequila née le 24 juin 2010.", as_of="2026-10-06")
+    uid = submit(client, "J'avais une chatte Pepper née le 24 juin 2010.", as_of="2026-10-06")
     capture = wait_capture(client, uid)
     assert capture["state"] == "ready"
     applied = client.post(f"/api/capture/{uid}/apply", json={})

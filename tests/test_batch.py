@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+TOKEN = "t" * 40
+
 
 def post(client, body, **kw):
     return client.post("/api/batch", json=body, **kw)
@@ -105,9 +107,9 @@ def test_embedding_failure_never_rolls_back(app, client, monkeypatch):
 
 
 def test_requires_token(mk):
-    client = mk(api_token="s3cret-token").test_client()
+    client = mk(api_token=TOKEN).test_client()
     assert post(client, {"ops": OPS}).status_code == 401
-    ok = post(client, {"ops": OPS}, headers={"Authorization": "Bearer s3cret-token"})
+    ok = post(client, {"ops": OPS}, headers={"Authorization": f"Bearer {TOKEN}"})
     assert ok.status_code == 200
 
 

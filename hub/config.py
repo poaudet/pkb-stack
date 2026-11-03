@@ -51,6 +51,8 @@ class Settings:
     tools_allow_destructive: bool = False
     tools_allow_extend: bool = True
     batch_max_ops: int = 100
+    auth_mode: str = ""
+    auth_proxy_header: str = "X-Forwarded-User"
     capture_enabled: bool = True
     capture_llm_base_url: str = ""
     capture_llm_api_key: str = ""
@@ -111,7 +113,9 @@ class Settings:
             llm_endpoints=_str("LLM_ENDPOINTS"),
             tools_allow_destructive=_bool("TOOLS_ALLOW_DESTRUCTIVE", False),
             tools_allow_extend=_bool("TOOLS_ALLOW_EXTEND", True),
-            batch_max_ops=max(1, _int("BATCH_MAX_OPS", 100)),
+            batch_max_ops=max(1, _int("PKB_BATCH_MAX_OPS", _int("BATCH_MAX_OPS", 100))),
+            auth_mode=_str("PKB_AUTH_MODE"),
+            auth_proxy_header=_str("PKB_AUTH_PROXY_HEADER", "X-Forwarded-User"),
             capture_enabled=_bool("CAPTURE_ENABLED", True),
             capture_llm_base_url=_str("CAPTURE_LLM_BASE_URL"),
             capture_llm_api_key=_str("CAPTURE_LLM_API_KEY"),
