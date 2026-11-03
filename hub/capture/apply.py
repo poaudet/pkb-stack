@@ -40,7 +40,7 @@ def _plan_input(stored: dict, body: dict) -> tuple[dict, dict[str, dict]]:
             continue
         updates[op.get("id")] = {"id": op.get("id"), "include": op.get("include", True)}
         raw = {key: op[key] for key in (
-            "id", "op", "type", "name", "ref", "target", "data", "patch", "reason",
+            "id", "op", "type", "name", "ref", "planned_ref", "target", "data", "patch", "reason",
             "description", "json_schema", "text_template", "unique_key", "embed",
             "add_properties",
         ) if key in op}
@@ -102,6 +102,27 @@ def _renormalize(hub, conn, capture_row, raw_plan: dict) -> dict:
     return jobs.renormalize(hub, conn, capture_row, raw_plan)
 
 
+def _blocked(selected: list[dict], all_ops: list[dict]) -> list[dict]:
+    """Selected ops whose required planned entities are not part of the selection."""
+    chosen = {op["id"] for op in selected}
+    by_id = {op["id"]: op for op in all_ops}
+    blocked = []
+    for op in selected:
+        needs = []
+        for dependency in op.get("requires", []):
+            if dependency in chosen:
+                continue
+            needed = by_id.get(dependency, {})
+            needs.append({
+                "op": dependency, "planned_ref": needed.get("planned_ref"),
+                "reason": f"needs '{needed.get('label') or dependency}' to be included",
+            })
+        if needs:
+            blocked.append({"op": op["id"], "requires": [item["op"] for item in needs],
+                            "needs": needs})
+    return blocked
+
+
 def _entity_data(conn, uid: str) -> tuple[dict, dict]:
     row = conn.execute(
         "SELECT * FROM entities WHERE uid=?", (uid,)
@@ -139,16 +160,14 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
                            op_id=item["id"], errors=item["errors"])
 
     selected = [op for op in normalized["ops"] if op["include"]]
-    selected_ids = {op["id"] for op in selected}
-    missing = [
-        {"op": op["id"], "requires": [dependency for dependency in op.get("requires", [])
-                                      if dependency not in selected_ids]}
-        for op in selected if any(dependency not in selected_ids
-                                  for dependency in op.get("requires", []))
-    ]
+    missing = _blocked(selected, normalized["ops"])
     if missing:
-        raise ApiError("dependency", "selected operations require unchecked operations", 409,
-                       missing=missing)
+        first = missing[0]
+        raise ApiError(
+            "dependency",
+            f"operation {first['op']} {first['needs'][0]['reason']}", 409,
+            missing=[{"op": item["op"], "requires": item["requires"]} for item in missing],
+            blocked=missing)
 
     prepared: dict[str, dict] = {}
     uid_by_op: dict[str, str] = {}
@@ -157,8 +176,9 @@ def apply(hub, conn, uid: str, body: dict, actor: str) -> dict:
         if op["kind"] in ("create_entity", "supersede_entity"):
             result_uid = uuid.uuid4().hex
             uid_by_op[op["id"]] = result_uid
-            if op.get("ref"):
-                refs[op["ref"]] = result_uid
+            for name in (op.get("ref"), op.get("planned_ref")):
+                if name:
+                    refs[name] = result_uid
 
     proposed_types = {
         op["name"]: {
@@ -406,7 +426,10 @@ def validate(hub, conn, uid: str, body: dict) -> dict:
     raw_plan, overrides = _plan_input(stored, body)
     if "allow_new_types" in body and not isinstance(body["allow_new_types"], bool):
         raise ApiError("validation_error", "allow_new_types must be a boolean", 400)
-    if set(body) - {"ops", "keep_note", "allow_new_types"}:
+    persist = body.get("persist", False)
+    if not isinstance(persist, bool):
+        raise ApiError("validation_error", "persist must be a boolean", 400)
+    if set(body) - {"ops", "keep_note", "allow_new_types", "persist"}:
         raise ApiError("validation_error", "unsupported validation field", 400)
     normalized = _renormalize(hub, conn, capture_row, raw_plan)
     by_id = {op["id"]: op for op in normalized["ops"]}
@@ -415,12 +438,8 @@ def validate(hub, conn, uid: str, body: dict) -> dict:
             by_id[op_id]["include"] = override["include"]
 
     selected = [op for op in normalized["ops"] if op.get("include", True)]
-    selected_ids = {op["id"] for op in selected}
-    missing = [
-        {"op": op["id"], "requires": [required for required in op.get("requires", [])
-                                      if required not in selected_ids]}
-        for op in selected if any(required not in selected_ids for required in op.get("requires", []))
-    ]
+    blocked = _blocked(selected, normalized["ops"])
+    missing = [{"op": item["op"], "requires": item["requires"]} for item in blocked]
     disallowed_types = [
         op for op in selected
         if op["kind"] == "create_entity_type" and not body.get("allow_new_types", False)
@@ -439,10 +458,21 @@ def validate(hub, conn, uid: str, body: dict) -> dict:
             "requires": op.get("requires", []),
             "label": op.get("label", ""),
             "risk": op.get("risk"),
+            "planned_ref": op.get("planned_ref"),
+            "blocked_by": next(
+                (item["needs"] for item in blocked if item["op"] == op["id"]), []),
         })
     invalid_selected = any(
         op.get("include", True) and op["status"] == "invalid" for op in normalized["ops"]
     )
+    if persist:
+        with tx(conn):
+            conn.execute(
+                "UPDATE captures SET plan=?,questions=?,warnings=? WHERE uid=? AND state='ready'",
+                (json.dumps(normalized, ensure_ascii=False),
+                 json.dumps(normalized["questions"], ensure_ascii=False),
+                 json.dumps(normalized["warnings"], ensure_ascii=False), uid),
+            )
     return {
         "ops": result_ops,
         "selection": {
