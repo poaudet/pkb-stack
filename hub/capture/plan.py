@@ -93,6 +93,8 @@ def merge_for_capture(current: object, patch: object) -> object:
 
 
 def _error_text(exc: Exception) -> str:
+    if isinstance(exc, KeyError):
+        return f"missing value for {exc.args[0]!r}"
     message = str(exc)
     return message[:300]
 
@@ -333,7 +335,7 @@ def _fill_reference_gaps(conn, op: dict, data: dict, schema: dict, aliases: dict
         ):
             continue
         label_field = _gap_label_field(type_info)
-        if label_field is None:
+        if label_field is None or out.get(field) is None:
             continue
         is_array = prop.get("type") == "array"
         values = out[field] if is_array and isinstance(out[field], list) else [out[field]]
