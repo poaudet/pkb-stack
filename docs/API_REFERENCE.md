@@ -67,6 +67,13 @@ the setting is available in REST and tool-based entity-type definitions.
 
 ## Entity type deletion
 
+`POST /api/entity-types/<name>/remove-field` with `{"field": "x"}` is a dry run returning
+`{applied:false, count, sample_ids (<=5)}`; add `"confirm": true` to apply. One transaction removes
+the field from the schema (version +1), strips it from every entity of the type, copies removed
+values to `schema_change_log` and rebuilds search text and embeddings. Required fields, the unique
+key and types with `allow_extension=false` are refused. The same operation is the destructive
+tool `remove_entity_type_field` (needs `PKB_TOOLS_ALLOW_DESTRUCTIVE`, and `PKB_TOOLS_ALLOW_EXTEND`).
+
 `DELETE /api/entity-types/<name>?confirm=true` is REST/UI-only. `cascade=true` is
 required when the type contains entities. Optional `convert_to_notes=true` requires
 `cascade=true` and first converts each entity into a note. The UI offers a client-side

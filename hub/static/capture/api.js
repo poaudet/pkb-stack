@@ -200,6 +200,12 @@ export const captureApi = {
   async entityTypes(options) {
     return apiRequest("/api/entity-types", options);
   },
+  async removeTypeField(name, data) {
+    return apiRequest("/api/entity-types/" + encodeURIComponent(name) + "/remove-field", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
   async extendType(name, data, options) {
     return apiRequest("/api/entity-types/" + encodeURIComponent(name) + "/extend", {
       method: "POST",

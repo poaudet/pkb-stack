@@ -220,3 +220,79 @@ def undo_extension(conn, name: str, added: list[str], version_after: int,
         return write()
     with tx(conn):
         return write()
+
+
+def remove_field(hub, conn, name: str, field: object, *, actor: str,
+                 confirm: bool = False) -> dict:
+    """Remove one optional property; dry run unless confirm is True."""
+    row = _type_row(conn, name)
+    if not row["allow_extension"]:
+        raise ApiError("forbidden", "entity type schema changes are disabled", 403)
+    if not isinstance(field, str) or not FIELD_RE.fullmatch(field):
+        raise validation("field must be a property name")
+    schema = json.loads(row["json_schema"])
+    if field not in schema.get("properties", {}):
+        raise not_found(f"field {field!r} not found on type {name!r}")
+    if field in schema.get("required", []):
+        raise ApiError("conflict", f"{field!r} is required and cannot be removed", 409)
+    if row["unique_key"] == field:
+        raise ApiError("conflict", f"{field!r} is the unique key and cannot be removed", 409)
+
+    affected = []
+    for entity_row in conn.execute(
+        "SELECT id, uid, data, status, updated_at FROM entities WHERE type=? ORDER BY id", (name,)
+    ):
+        data = json.loads(entity_row["data"])
+        if field in data:
+            affected.append((entity_row, data))
+    result = {"applied": False, "type": name, "field": field, "count": len(affected),
+              "sample_ids": [entity_row["uid"] for entity_row, _ in affected[:5]],
+              "schema_version": row["schema_version"]}
+    if confirm is not True:
+        return result
+
+    new_schema = json.loads(row["json_schema"])
+    new_schema["properties"].pop(field)
+    try:
+        Draft202012Validator.check_schema(new_schema)
+    except Exception as exc:
+        raise validation("resulting schema is invalid") from exc
+    trow = {**dict(row), "json_schema": new_schema}
+    prepared = []
+    for entity_row, data in affected:
+        stripped = {key: value for key, value in data.items() if key != field}
+        prepared.append((entity_row, data, stripped, entities._prepare(hub, trow, stripped)))
+
+    version = row["schema_version"] + 1
+    with tx(conn):
+        conn.execute(
+            "UPDATE entity_types SET json_schema=?,schema_version=?,updated_at=? WHERE name=?",
+            (json.dumps(new_schema, ensure_ascii=False), version, _now(), name),
+        )
+        change = json.dumps({"removed": [field]})
+        conn.execute(
+            "INSERT INTO entity_type_history(type,version,json_schema,change,actor) "
+            "VALUES(?,?,?,?,?)",
+            (name, version, json.dumps(new_schema, ensure_ascii=False), change, actor),
+        )
+        for entity_row, data, stripped, chunk in prepared:
+            conn.execute(
+                "INSERT INTO schema_change_log(type,version,change,field,entity_uid,"
+                "removed_value,actor) VALUES(?,?,?,?,?,?,?)",
+                (name, version, "remove_field", field, entity_row["uid"],
+                 json.dumps(data[field], ensure_ascii=False), actor),
+            )
+            conn.execute(
+                "UPDATE entities SET data=?, updated_at=? WHERE id=?",
+                (json.dumps(stripped, ensure_ascii=False),
+                 entities._next_updated_at(entity_row["updated_at"]), entity_row["id"]),
+            )
+            entities._write_chunk(hub, conn, entity_row["id"], chunk)
+        conn.execute(
+            "INSERT INTO audit_log(actor,action,target_kind,target_uid,detail) "
+            "VALUES(?,?,?,?,?)",
+            (actor, "type_remove_field", "entity_type", name,
+             json.dumps({"field": field, "count": len(affected)})),
+        )
+    return {**result, "applied": True, "schema_version": version,
+            "type_info": entities.get_type(conn, name)}

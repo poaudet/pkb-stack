@@ -105,7 +105,13 @@ export function renderTypeDetails(name, container) {
   add.addEventListener("click", () => openAddField(type.name));
   const history = el("button", { type: "button", className: "secondary", textContent: "History" });
   history.addEventListener("click", () => showHistory(type.name, details));
-  actions.append(add, history);
+  const remove = el("button", {
+    type: "button", className: "secondary", textContent: "Remove field",
+    disabled: !extensionAllowed,
+    title: extensionAllowed ? "" : "Schema changes are disabled for this type.",
+  });
+  remove.addEventListener("click", () => openRemoveField(type.name));
+  actions.append(add, history, remove);
   const policyForm = el("form", { className: "type-policy" });
   const policyValues = {};
   const help = {
@@ -355,4 +361,53 @@ export function openAddField(typeName, onSaved = async () => {}) {
     }
   });
   dialog.showModal();
+}
+
+export function openRemoveField(typeName) {
+  const type = typeByName(typeName);
+  const schema = type.json_schema || {};
+  const removable = Object.keys(schema.properties || {}).filter((field) =>
+    !(schema.required || []).includes(field) && type.unique_key !== field);
+  const dialog = $("type-dialog");
+  const field = el("select", { "aria-label": "Field to remove" });
+  for (const name of removable) field.append(new Option(name, name));
+  const message = el("p", { role: "status", className: "capture-error-text" });
+  const impact = el("p", { role: "status", className: "meta" });
+  const confirm = el("button", { type: "button", textContent: "Remove field", disabled: true });
+  const close = el("button", { type: "button", className: "secondary", textContent: "Cancel" });
+  close.addEventListener("click", () => dialog.close());
+  dialog.replaceChildren(
+    el("h2", { textContent: `Remove field from ${typeName}` }),
+    removable.length ? field : el("p", { textContent: "No optional fields can be removed." }),
+    impact, message, confirm, close,
+  );
+  const preview = async () => {
+    confirm.disabled = true;
+    impact.textContent = "";
+    message.textContent = "";
+    if (!field.value) return;
+    try {
+      const result = await captureApi.removeTypeField(typeName, { field: field.value });
+      impact.textContent = `This deletes "${field.value}" from ${result.count} record(s). `
+        + "Removed values are kept in the schema change log.";
+      confirm.disabled = false;
+    } catch (error) {
+      message.textContent = error.message || "Could not check the field.";
+    }
+  };
+  field.addEventListener("change", preview);
+  confirm.addEventListener("click", async () => {
+    confirm.disabled = true;
+    try {
+      await captureApi.removeTypeField(typeName, { field: field.value, confirm: true });
+      await refreshTypes();
+      dialog.close();
+      renderTypeDetails(typeName, $("e-type-details"));
+    } catch (error) {
+      message.textContent = error.message || "Could not remove the field.";
+      confirm.disabled = false;
+    }
+  });
+  dialog.showModal();
+  preview();
 }

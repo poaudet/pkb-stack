@@ -188,8 +188,29 @@ def _m8(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m9(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_change_log(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          type TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          change TEXT NOT NULL,
+          field TEXT NOT NULL,
+          entity_uid TEXT NOT NULL,
+          removed_value TEXT NOT NULL CHECK (json_valid(removed_value)),
+          actor TEXT NOT NULL,
+          at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_schema_change_log_type ON schema_change_log(type, field)"
+    )
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
-    _m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8,
+    _m1, _m2, _m3, _m4, _m5, _m6, _m7, _m8, _m9,
 ]
 
 
