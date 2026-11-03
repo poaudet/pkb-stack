@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from flask import Blueprint, current_app, jsonify, request, send_file
 
-from .. import maintenance
+from .. import guard, maintenance
 from ..errors import validation
 
 bp = Blueprint("admin", __name__)
@@ -56,6 +56,10 @@ def health():
             "capture": {
                 "enabled": hub.settings.capture_enabled,
                 **_llm_info(hub.llm_settings("capture")),
+            },
+            "guard": {
+                "reduced": guard.current().reduced,
+                "detectors": guard.current().summary(),
             },
             "owner_configured": bool(conn.execute(
                 "SELECT 1 FROM meta WHERE key='self_uid'"

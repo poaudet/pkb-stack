@@ -186,6 +186,11 @@ async function loadStatus() {
     const h = await api("/health");
     const s = await api("/api/stats");
     $("health").textContent = JSON.stringify({ health: h, stats: s }, null, 2);
+    const guardOff = Object.entries((h.guard && h.guard.detectors) || {})
+      .filter(([, mode]) => mode === "off").map(([name]) => name);
+    $("guard-badge").hidden = !guardOff.length;
+    $("guard-badge").textContent = guardOff.length
+      ? "Sensitive-data guard reduced: off for " + guardOff.join(", ") : "";
     $("llm-badge").textContent = !h.llm.configured ? "AI tidy-up: off"
       : h.llm.local ? "LLM: local (" + h.llm.model + ")"
       : "LLM: remote: note text leaves this machine (" + h.llm.model + ")";

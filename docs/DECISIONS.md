@@ -278,3 +278,9 @@
   stored (no entity rows are written). Validate results add `planned_ref` and `blocked_by`;
   apply's 409 `dependency` error adds `blocked` with a reason, keeping `missing` unchanged.
 - Gap ops get collision-free aliases (`g<n>` never reuses an op id or ref in the plan).
+
+## T4: configurable sensitive-data guard
+
+Redaction and secret gating now share one detector table (`hub/guard.py`) configured by
+`PKB_GUARD_*`. Defaults match the previous behaviour. PyYAML was already a dependency, so
+no new dependency. Matching is full-match for allow patterns.
