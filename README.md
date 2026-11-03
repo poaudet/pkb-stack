@@ -112,6 +112,7 @@ The repository includes a dedicated MCP bridge (`hub_mcp`) implementing the [Mod
 | `find_entities` | Search and filter entities by type and JSON field criteria. |
 | `get_self` | Retrieve profile information about the knowledge base owner. |
 | `list_types` | List all available entity types and schemas. |
+| `batch` | Many writes in one call (atomic or partial, optional dry run). |
 | `extend_entity_type` | Preview and, after owner approval, add optional fields to a type. |
 
 ### Connecting to Claude Desktop / Cursor

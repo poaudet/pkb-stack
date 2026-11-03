@@ -10,7 +10,7 @@ def create_app(settings=None, embedder=None):
 
     from . import guard
     from . import self as self_svc
-    from .api import admin, capture, entities, llm_settings, notes, pending, search, tools
+    from .api import admin, batch, capture, entities, llm_settings, notes, pending, search, tools
     from .api import self as self_api
     from .auth import init_auth
     from .config import Settings
@@ -39,7 +39,7 @@ def create_app(settings=None, embedder=None):
 
     hub.reindexer = Reindexer(hub)
     init_auth(app, settings.api_token)
-    for m in (admin, capture, entities, llm_settings, notes, pending, search, self_api, tools):
+    for m in (admin, batch, capture, entities, llm_settings, notes, pending, search, self_api, tools):
         app.register_blueprint(m.bp)
 
     @app.get("/")

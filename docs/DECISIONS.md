@@ -292,3 +292,9 @@ no new dependency. Matching is full-match for allow patterns.
 Existing databases are migrated at startup (idempotent, one transaction, SQLite backup
 `<db>.pre-birthday-<ts>.bak` first). Unparseable values move to `notes` and are logged in
 `schema_change_log`. Age is computed only when `birth_year` exists (`birthday.age`).
+
+## T6: batch endpoint
+
+One outer transaction; savepoint per op for partial mode. Embeddings are deferred past the
+commit via a hub proxy so the existing service functions are reused unchanged. Guard runs in
+block mode only (redaction would silently alter direct API data).

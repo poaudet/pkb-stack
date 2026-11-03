@@ -83,3 +83,28 @@ Deletion returns `409 dependency` with `error.reasons`, `error.referenced_by`, a
 per-status `error.counts` when blocked by a built-in type, schema references, a running
 Capture job, or existing records without cascade. Cascade removes entity chunks,
 vectors, search rows, and type history transactionally. No delete-type agent tool exists.
+
+## Batch writes
+
+`POST /api/batch` (same auth as every `/api/` route; actor from `X-Actor`) and the MCP tool `batch`:
+
+```json
+{"mode": "atomic", "dry_run": false, "ops": [
+  {"op": "create_entity", "type": "person", "data": {"name": "Alice"}},
+  {"op": "update_entity", "id": "<uid>", "patch": {"relationship": "friend"}},
+  {"op": "supersede_entity", "id": "<uid>", "data": {"name": "Alice"}, "reason": "redo"},
+  {"op": "archive_entity", "id": "<uid>", "reason": "obsolete"},
+  {"op": "create_note", "content": "text", "tags": ["x"]}
+]}
+```
+
+- `mode`: `atomic` (default; any failure rolls everything back, later ops are `skipped`) or `partial`
+  (each op is isolated; good ops are kept). `dry_run=true` validates and saves nothing.
+- Response `200`: `{ok, mode, dry_run, committed, results:[{index, op, ok, result|error}], embeddings}`.
+  A failed atomic batch is still `200` with `committed:false`.
+- `400` malformed envelope; `413` more than `PKB_BATCH_MAX_OPS` (default 100) operations.
+- Embeddings are computed once after commit; if that fails the data stays saved
+  (`embeddings.failed > 0`) and a reindex repairs the vectors.
+- The sensitive-data guard blocks per op (`secret_detected`, value never echoed).
+- Agent actors (`agent:*`) cannot `create_note` here while `AGENT_NOTES_REQUIRE_REVIEW` is on
+  (`review_required`); use `POST /api/notes`.

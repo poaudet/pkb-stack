@@ -13,7 +13,7 @@ from jsonschema import Draft202012Validator, validators
 from jsonschema.exceptions import SchemaError, ValidationError
 
 from . import policy
-from .db import tx
+from .db import joined_tx, tx
 from .errors import ApiError, not_found, validation
 
 if TYPE_CHECKING:
@@ -705,7 +705,7 @@ def supersede_entity(hub: Hub, conn, uid: str, data: object, reason: str | None 
 
 
 def set_status(conn, uid: str, status: str, reason: str | None = None, actor: str = "api",
-               force: bool = False) -> dict:
+               force: bool = False, in_tx: bool = False) -> dict:
     row = _row(conn, uid)
     if status == "archived" and row["status"] == "archived":
         raise ApiError("conflict", "already archived", 409)
@@ -715,7 +715,7 @@ def set_status(conn, uid: str, status: str, reason: str | None = None, actor: st
         from . import self as self_svc
 
         self_svc.assert_change(conn, row, {}, force=force)
-    with tx(conn):
+    with joined_tx(conn, in_tx):
         if status == "current":
             type_row = _type_row(conn, row["type"])
             data = json.loads(row["data"])
