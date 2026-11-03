@@ -67,8 +67,8 @@ def test_merge_patch_archive_forget(client, app):
 
 
 def test_query_ops(client):
-    for n, rel, b, hab in (("Ann", "friend", "1990-01-05", ["run"]),
-                           ("Ben", "Friend", "1985-06-10", ["chess"]),
+    for n, rel, b, hab in (("Ann", "friend", "01-05", ["run"]),
+                           ("Ben", "Friend", "06-10", ["chess"]),
                            ("Cy", "family", None, [])):
         d = {"name": n, "relationship": rel, "habits": hab}
         if b:
@@ -88,16 +88,16 @@ def test_query_ops(client):
     assert names(**f("contains", "rie")) == ["Ann", "Ben"]
     assert names(**f("contains", "%")) == []
     assert names(**f("in", ["family", "friend"])) == ["Ann", "Cy"]
-    assert names(**f("gt", "1986-01-01", "birthday")) == ["Ann"]
-    assert names(**f("gte", "1985-06-10", "birthday")) == ["Ann", "Ben"]
-    assert names(**f("lt", "1986-01-01", "birthday")) == ["Ben"]
-    assert names(**f("lte", "1985-06-10", "birthday")) == ["Ben"]
+    assert names(**f("gt", "03-01", "birthday")) == ["Ben"]
+    assert names(**f("gte", "01-05", "birthday")) == ["Ann", "Ben"]
+    assert names(**f("lt", "03-01", "birthday")) == ["Ann"]
+    assert names(**f("lte", "01-05", "birthday")) == ["Ann"]
     assert names(**f("exists", True, "birthday")) == ["Ann", "Ben"]
     assert names(**f("exists", False, "birthday")) == ["Cy"]
     assert names(**f("has", "CHESS", "habits")) == ["Ben"]
     # NULLs last in both directions, ordering works
-    assert names(order_by={"field": "birthday", "dir": "asc"}) == ["Ben", "Ann", "Cy"]
-    assert names(order_by={"field": "birthday", "dir": "desc"}) == ["Ann", "Ben", "Cy"]
+    assert names(order_by={"field": "birthday", "dir": "asc"}) == ["Ann", "Ben", "Cy"]
+    assert names(order_by={"field": "birthday", "dir": "desc"}) == ["Ben", "Ann", "Cy"]
     assert names(limit=1, offset=1, order_by={"field": "name"}) == ["Ben"]
 
 
@@ -190,7 +190,7 @@ def test_owner_scenarios(client):
     assert r["ok"] and r["result"]["items"][0]["data"]["title"] == "Picnic"
     r = tool(client, "query_entities", {"type": "person", "filters": [
         {"field": "name", "op": "ieq", "value": "alice"}]})
-    assert r["result"]["items"][0]["data"]["birthday"] == "1990-04-12"
+    assert r["result"]["items"][0]["data"]["birthday"] == "04-12"
     r = tool(client, "query_entities", {"type": "message", "filters": [
         {"field": "contact", "op": "ieq", "value": "vet"}],
         "order_by": {"field": "at", "dir": "desc"}, "limit": 20})

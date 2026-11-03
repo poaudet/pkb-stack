@@ -249,7 +249,8 @@ TOOLS: list[Tool] = [
          "Store a structured record of an existing type (see list_entity_types). Fails with "
          "'conflict' if the unique key already exists: then use update_entity or "
          "supersede_entity. Example: {\"type\": \"person\", \"data\": {\"name\": \"Alice\", "
-         "\"birthday\": \"1990-04-12\", \"relationship\": \"friend\"}}.",
+         "\"birthday\": \"04-12\", \"birth_year\": 1990, \"relationship\": \"friend\"}}. "
+         "birthday is MM-DD only; give birth_year only when known (a full date is split for you).",
          _obj({"type": _STR, "data": {"type": "object"}}, ["type", "data"]),
          _create_entity,
          writes=True),

@@ -259,7 +259,8 @@ def test_french_values_and_iso_dates_survive_normalization(tmp_path, stub):
         f"/api/entities/{applied.get_json()['applied'][0]['id']}"
     ).get_json()["entity"]
     assert person["data"]["relationship"] == "chatte"
-    assert person["data"]["birthday"] == "2010-06-24"
+    assert person["data"]["birthday"] == "06-24"
+    assert person["data"]["birth_year"] == 2010
 
 
 def test_json_mode_fallback_and_single_repair(tmp_path, stub):

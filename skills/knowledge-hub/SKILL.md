@@ -36,7 +36,7 @@ collaborating with?" or "what launches are coming up?" and get exact answers.
 ## Entity types: seed + custom
 
 Seed types (built-in, always available):
-- **person**: collaborators, friends, family, contacts. Fields: name, relationship, birthday, contact_info, habits, interests, notes.
+- **person**: collaborators, friends, family, contacts. Fields: name, relationship, birthday (MM-DD), birth_year (optional), contact_info, habits, interests, notes.
 - **event**: dated occurrences. Fields: date, title, kind (meeting|visit|launch|achievement|...), location, people[], notes.
 - **message**: communications. Fields: contact, at (date-time), direction (in|out), channel (email|sms|phone|...), subject, text.
 - **memory**: significant moments, reflections. Fields: date, title, description, tags[], people[].

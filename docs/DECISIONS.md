@@ -284,3 +284,11 @@
 Redaction and secret gating now share one detector table (`hub/guard.py`) configured by
 `PKB_GUARD_*`. Defaults match the previous behaviour. PyYAML was already a dependency, so
 no new dependency. Matching is full-match for allow patterns.
+
+## T5b: person birthday as MM-DD + birth_year
+
+`birthday` is `MM-DD` (pattern); optional integer `birth_year` (>=1901). A full date written to
+`birthday` (API, tools, capture) is split by `hub/birthday.py`; years 0000/1900 mean unknown.
+Existing databases are migrated at startup (idempotent, one transaction, SQLite backup
+`<db>.pre-birthday-<ts>.bak` first). Unparseable values move to `notes` and are logged in
+`schema_change_log`. Age is computed only when `birth_year` exists (`birthday.age`).
