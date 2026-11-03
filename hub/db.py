@@ -53,6 +53,16 @@ def tx(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
         conn.execute("COMMIT")
 
 
+@contextmanager
+def joined_tx(conn: sqlite3.Connection, outer: bool) -> Iterator[sqlite3.Connection]:
+    """Own transaction, or join the caller's when outer is True."""
+    if outer:
+        yield conn
+    else:
+        with tx(conn) as c:
+            yield c
+
+
 def _m1(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
 

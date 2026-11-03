@@ -292,3 +292,14 @@ no new dependency. Matching is full-match for allow patterns.
 Existing databases are migrated at startup (idempotent, one transaction, SQLite backup
 `<db>.pre-birthday-<ts>.bak` first). Unparseable values move to `notes` and are logged in
 `schema_change_log`. Age is computed only when `birth_year` exists (`birthday.age`).
+
+## T6: batch endpoint
+
+One outer transaction; savepoint per op for partial mode. Embeddings are deferred past the
+commit via a hub proxy so the existing service functions are reused unchanged. Guard runs in
+block mode only (redaction would silently alter direct API data).
+
+## T7: public-ready auth
+- `PKB_AUTH_MODE` selects token/proxy/none. Token mode requires 32+ characters, compares in constant time and rate limits failures.
+- UI sessions use an itsdangerous-signed cookie. No new dependency: itsdangerous ships with Flask.
+- Unauthenticated `/health` is status-only so the Docker HEALTHCHECK keeps working without leaking data.

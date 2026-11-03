@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from jsonschema import Draft202012Validator
 
-from . import entities, entity_types, notes, pending, policy
+from . import batch, entities, entity_types, notes, pending, policy
 from . import search as search_svc
 from . import self as self_svc
 from .core import Hub
@@ -273,6 +273,17 @@ TOOLS: list[Tool] = [
          _obj({"name": _STR, "field": _STR, "confirm": {"type": "boolean"}},
               ["name", "field"]),
          _remove_field, writes=True, destructive=True),
+    Tool("batch",
+         "Run many writes in one call (default atomic: all or nothing; mode=partial keeps the "
+         "good ones). Each op has an 'op' of create_entity, update_entity, supersede_entity, "
+         "archive_entity or create_note. Use dry_run=true to validate without saving. "
+         "Example: {\"mode\": \"atomic\", \"ops\": [{\"op\": \"create_entity\", \"type\": "
+         "\"person\", \"data\": {\"name\": \"Alice\"}}, {\"op\": \"create_note\", "
+         "\"content\": \"Met Alice\"}]}.",
+         _obj({"ops": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+               "mode": {"type": "string", "enum": list(batch.MODES)},
+               "dry_run": {"type": "boolean"}}, ["ops"]),
+         lambda h, c, a, u: batch.run(h, c, a, u), writes=True),
     Tool("query_entities",
          "Exact structured lookup of entities. Use for 'when', 'who', 'last time' questions; "
          "reason over the returned rows yourself. Fields must be top-level fields of the type. "

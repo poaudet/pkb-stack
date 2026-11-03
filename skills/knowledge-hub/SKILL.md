@@ -20,8 +20,8 @@ queryable, linked, and survive refactoring. Examples:
   - **Entity**: `event` (date: 2026-08-15, location: "Portland", people: ["Alice"])
   - Also consider: `memory` (if it's a significant milestone or feeling) tagged with `["travel", "Alice"]`
 
-- User says: "My dog Mistelle was born Dec 21, 2016"
-  - **Entity**: `person` (name: "Mistelle", relationship: "pet", born: "2016-12-21", type: "dog")
+- User says: "My dog Biscuit was born Dec 21, 2016"
+  - **Entity**: `person` (name: "Biscuit", relationship: "pet", born: "2016-12-21", type: "dog")
 
 - User says: "Working with Matt on the PMT tool since June, launching Oct 13"
   - **Entities**: 
@@ -87,13 +87,13 @@ unknown tool.
 
 Example flow:
 ```
-User: "Mistelle had her vet checkup today. She's doing well, no issues."
-→ Parse: Mistelle (existing pet), vet visit (new event), health status (update to person)
+User: "Biscuit had her vet checkup today. She's doing well, no issues."
+→ Parse: Biscuit (existing pet), vet visit (new event), health status (update to person)
 → Create:
-   - POST /api/tools/update_entity {id: "<mistelle-id>", data: {notes: "Recent vet checkup: healthy"}}
+   - POST /api/tools/update_entity {id: "<biscuit-id>", data: {notes: "Recent vet checkup: healthy"}}
    - POST /api/tools/create_entity {type: "event", data: {date: "2026-10-06", kind: "vet", 
-     title: "Mistelle vet checkup", people: ["<mistelle-id>"], notes: "Healthy, no issues"}}
-→ Result: Vet visit is logged and linked to Mistelle; querying Mistelle shows recent activity
+     title: "Biscuit vet checkup", people: ["<biscuit-id>"], notes: "Healthy, no issues"}}
+→ Result: Vet visit is logged and linked to Biscuit; querying Biscuit shows recent activity
 ```
 
 ### User asks you something (query mode)
@@ -122,9 +122,9 @@ User: "What pets do I have and how are they doing?"
 → Parse: pets = person entities with relationship="pet"
 → Query:
    - POST /api/tools/query_entities {type: "person", filters: [{field: "relationship", op: "ieq", value: "pet"}]}
-→ Result: [{id: "...", name: "Mistelle", animal_type: "dog", notes: "Healthy, no issues"}, 
-           {id: "...", name: "Tequila", animal_type: "cat", ...}]
-→ Synthesize: "You have Mistelle (dog) and Tequila (cat). Mistelle had a recent vet checkup and
+→ Result: [{id: "...", name: "Biscuit", animal_type: "dog", notes: "Healthy, no issues"}, 
+           {id: "...", name: "Pepper", animal_type: "cat", ...}]
+→ Synthesize: "You have Biscuit (dog) and Pepper (cat). Biscuit had a recent vet checkup and
   is doing well..."
 ```
 
@@ -194,16 +194,16 @@ Result: You can later ask "when did I last sail?", "last time with Sara?", or se
 "sailing memories" and find this entry.
 
 ### Example 2: Health milestone
-User: "Mistelle is 10 years old today. Still mobile, eats well, but arthritis is slowing
+User: "Biscuit is 10 years old today. Still mobile, eats well, but arthritis is slowing
 her down."
 
 Decompose into:
-- **Update person** (Mistelle): birthday (if not set), update notes with health status
-- **Event**: date (today), kind ("birthday"), title ("Mistelle turns 10"), people (["Mistelle"])
-- **Memory**: date, title ("Mistelle's 10th birthday"), description ("Still active, arthritic
-  hind legs..."), tags: ["pet", "Mistelle", "milestone"], people: ["Mistelle"]
+- **Update person** (Biscuit): birthday (if not set), update notes with health status
+- **Event**: date (today), kind ("birthday"), title ("Biscuit turns 10"), people (["Biscuit"])
+- **Memory**: date, title ("Biscuit's 10th birthday"), description ("Still active, arthritic
+  hind legs..."), tags: ["pet", "Biscuit", "milestone"], people: ["Biscuit"]
 
-Result: Querying Mistelle shows her age and recent health notes. Asking "pet birthdays this
+Result: Querying Biscuit shows her age and recent health notes. Asking "pet birthdays this
 month?" finds this event. Searching "arthritis" finds the memory.
 
 ### Example 3: Work collaboration

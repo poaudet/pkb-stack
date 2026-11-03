@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime
 
 from . import mirror
 from .core import Hub
-from .db import tx
+from .db import joined_tx, tx
 from .errors import ApiError, not_found, validation
 
 MAX_CONTENT = 200_000
@@ -155,9 +155,17 @@ def _mirror(hub: Hub, conn: sqlite3.Connection, uid: str) -> None:
     mirror.sync(hub.settings.data_dir, to_dict(conn, _row(conn, uid)), hub.settings.mirror_markdown)
 
 
+def _mirror_or_queue(hub, conn, uid: str, queue: list[str] | None) -> None:
+    if queue is None:
+        _mirror(hub, conn, uid)
+    else:
+        queue.append(uid)
+
+
 def create_note(hub: Hub, conn, data: dict, actor: str = "ui", *, raw_content: str | None = None,
                 supersede: list[str] | None = None, in_tx=None,
-                source_override: str | None = None) -> dict:
+                source_override: str | None = None, outer_tx: bool = False,
+                mirror_queue: list[str] | None = None) -> dict:
     _require_embeddings(hub)
     content = _check_content(data.get("content"))
     title = _check_title(data.get("title"), content)
@@ -177,7 +185,7 @@ def create_note(hub: Hub, conn, data: dict, actor: str = "ui", *, raw_content: s
     source = source_override or (
         actor if actor.startswith("agent:") else str(data.get("source") or "ui")
     )
-    with tx(conn):
+    with joined_tx(conn, outer_tx):
         nid, uid = _insert(hub, conn, title=title, content=content, tags=tags,
                            happened_at=happened, source=source, raw=raw_content,
                            chunks=chunks, vecs=vecs)
@@ -192,8 +200,8 @@ def create_note(hub: Hub, conn, data: dict, actor: str = "ui", *, raw_content: s
         if in_tx is not None:
             in_tx(conn)
     for o in olds:
-        _mirror(hub, conn, o["uid"])
-    _mirror(hub, conn, uid)
+        _mirror_or_queue(hub, conn, o["uid"], mirror_queue)
+    _mirror_or_queue(hub, conn, uid, mirror_queue)
     return to_dict(conn, _row(conn, uid))
 
 
@@ -259,7 +267,8 @@ def patch_note(hub: Hub, conn, uid: str, data: dict, actor: str = "ui") -> dict:
     return to_dict(conn, _row(conn, uid))
 
 
-def supersede_note(hub: Hub, conn, uid: str, data: dict, actor: str = "ui") -> dict:
+def supersede_note(hub: Hub, conn, uid: str, data: dict, actor: str = "ui", *,
+                   outer_tx: bool = False, mirror_queue: list[str] | None = None) -> dict:
     _require_embeddings(hub)
     old = _row(conn, uid)
     if old["status"] != "current":
@@ -273,7 +282,7 @@ def supersede_note(hub: Hub, conn, uid: str, data: dict, actor: str = "ui") -> d
         raise validation("reason must be a string")
     chunks, vecs = _prepare(hub, title, content)
     source = actor if actor.startswith("agent:") else "ui"
-    with tx(conn):
+    with joined_tx(conn, outer_tx):
         nid, new_uid = _insert(hub, conn, title=title, content=content, tags=tags,
                                happened_at=happened, source=source, chunks=chunks, vecs=vecs)
         conn.execute(
@@ -282,24 +291,25 @@ def supersede_note(hub: Hub, conn, uid: str, data: dict, actor: str = "ui") -> d
             (nid, reason, _now(), old["id"]),
         )
         _audit(conn, actor, "supersede", uid, new_uid)
-    _mirror(hub, conn, uid)
-    _mirror(hub, conn, new_uid)
+    _mirror_or_queue(hub, conn, uid, mirror_queue)
+    _mirror_or_queue(hub, conn, new_uid, mirror_queue)
     return to_dict(conn, _row(conn, new_uid))
 
 
-def set_status(hub: Hub, conn, uid: str, status: str, reason=None, actor: str = "ui") -> dict:
+def set_status(hub: Hub, conn, uid: str, status: str, reason=None, actor: str = "ui", *,
+               outer_tx: bool = False, mirror_queue: list[str] | None = None) -> dict:
     row = _row(conn, uid)
     if status == "archived" and row["status"] == "archived":
         raise ApiError("conflict", "already archived", 409)
     if status == "current" and row["status"] != "archived":
         raise ApiError("conflict", "only archived notes can be restored", 409)
-    with tx(conn):
+    with joined_tx(conn, outer_tx):
         conn.execute(
             "UPDATE notes SET status=?, status_reason=?, updated_at=? WHERE id=?",
             (status, reason, _now(), row["id"]),
         )
         _audit(conn, actor, "archive" if status == "archived" else "restore", uid)
-    _mirror(hub, conn, uid)
+    _mirror_or_queue(hub, conn, uid, mirror_queue)
     return to_dict(conn, _row(conn, uid))
 
 

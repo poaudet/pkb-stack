@@ -26,3 +26,10 @@ This document outlines the sanitization and cleanup audit performed to prepare t
 5. **Dependency Audit**
    - Audited dependencies against the GitHub Advisory Database for known vulnerabilities.
    - Pinned `httpx==0.28.1` in `requirements-mcp.txt` for the MCP bridge container.
+
+## T7 Public-ready Pass
+
+- Git history scanned (full clone, all branches) for keys, tokens, private keys, emails and LAN IPs. Only finding: LAN IP `192.168.1.28` in the removed `knowledge_hub_discussion.md` (commits `cda7dd5` added it, `d0d1563` removed it, plus intermediate edits). A PEM header string in `tests/test_guard.py` is a synthetic fixture. No history rewrite was done; the owner should decide whether to rewrite.
+- Real pet names in docs, skill and tests replaced with neutral ones.
+- Auth hardened (`docs/DECISIONS.md`), `SECURITY.md` added, CI adds gitleaks and no-push image builds, publish runs only on `v*` tags, actions SHA-pinned.
+- License: MIT (already present); the choice stays with the owner.
