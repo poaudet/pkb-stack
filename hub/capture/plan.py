@@ -169,6 +169,127 @@ def _walk_refs(value: object):
             yield from _walk_refs(child)
 
 
+PLANNED_REF = re.compile(r"^@new:([a-z][a-z0-9_]*):([1-9][0-9]*)$")
+
+
+class _Planner:
+    """Hands out plan-scoped references (@new:type:n) and unique gap aliases."""
+
+    def __init__(self, raw_ops: list) -> None:
+        self.counters: dict[str, int] = {}
+        self.used: set[str] = set()
+        self.reserved: set[str] = set()
+        self.by_index: dict[int, str] = {}
+        creates = []
+        for index, op in enumerate(raw_ops, start=1):
+            if not isinstance(op, dict):
+                continue
+            for key in ("id", "ref"):
+                if isinstance(op.get(key), str):
+                    self.reserved.add(op[key])
+            if op.get("op") == "create_entity":
+                creates.append((index, op))
+        for index, op in creates:
+            value = op.get("planned_ref")
+            match = PLANNED_REF.fullmatch(value) if isinstance(value, str) else None
+            if match and value not in self.used:
+                self.used.add(value)
+                self.by_index[index] = value
+                self.counters[match[1]] = max(self.counters.get(match[1], 0), int(match[2]))
+        for index, op in creates:
+            if index not in self.by_index:
+                self.by_index[index] = self.new(op.get("type"))
+        self.forward = set(self.used) | {
+            op["ref"] for _index, op in creates if isinstance(op.get("ref"), str)
+        }
+
+    def new(self, type_name: object) -> str:
+        label = re.sub(r"[^a-z0-9_]", "_", str(type_name or "entity").casefold())
+        if not label or not label[0].isalpha():
+            label = "t" + label
+        self.counters[label] = self.counters.get(label, 0) + 1
+        value = f"@new:{label}:{self.counters[label]}"
+        self.used.add(value)
+        return value
+
+    def gap_alias(self, taken: dict) -> str:
+        number = len(taken) + 1
+        while f"g{number}" in self.reserved:
+            number += 1
+        alias = f"g{number}"
+        self.reserved.add(alias)
+        return alias
+
+
+def _planned_strings_to_refs(value: object) -> object:
+    if isinstance(value, str) and PLANNED_REF.fullmatch(value):
+        return {"$ref": value}
+    if isinstance(value, dict):
+        if set(value) == {"$ref"}:
+            return value
+        return {key: _planned_strings_to_refs(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_planned_strings_to_refs(item) for item in value]
+    return value
+
+
+def _rewrite_refs(value: object, mapping: dict[str, str]) -> object:
+    if isinstance(value, dict):
+        if set(value) == {"$ref"} and value["$ref"] in mapping:
+            return {"$ref": mapping[value["$ref"]]}
+        return {key: _rewrite_refs(item, mapping) for key, item in value.items()}
+    if isinstance(value, list):
+        items = [_rewrite_refs(item, mapping) for item in value]
+        return [item for position, item in enumerate(items)
+                if not (isinstance(item, dict) and set(item) == {"$ref"}
+                        and item in items[:position])]
+    return value
+
+
+def _merge_planned_duplicates(out: list[dict], types: dict[str, dict]) -> list[dict]:
+    """Merge create ops that plan the same entity (same type and unique key)."""
+    seen: dict[tuple, dict] = {}
+    mapping: dict[str, str] = {}
+    kept = []
+    for item in out:
+        info = types.get(item.get("type")) or {}
+        key = info.get("unique_key")
+        data = item.get("data")
+        value = data.get(key) if key and isinstance(data, dict) else None
+        if (item.get("kind") != "create_entity" or item.get("status") != "valid"
+                or not isinstance(value, (str, int)) or isinstance(value, bool)
+                or value == ""):
+            kept.append(item)
+            continue
+        marker = (item["type"], fold(value) if isinstance(value, str) else value)
+        first = seen.get(marker)
+        if first is None:
+            seen[marker] = item
+            kept.append(item)
+            continue
+        for field, extra in data.items():
+            current = first["data"].get(field)
+            if field not in first["data"]:
+                first["data"][field] = extra
+            elif isinstance(current, list) and isinstance(extra, list):
+                current.extend(entry for entry in extra if entry not in current)
+            elif current != extra:
+                first["warnings"].append(f"merged duplicate: kept {field} from {first['id']}")
+        first["warnings"].append(f"merged duplicate of {item['id']}")
+        for name in (item.get("ref"), item.get("planned_ref"), first.get("ref")):
+            if name and first.get("planned_ref"):
+                mapping[name] = first["planned_ref"]
+        if isinstance(first.get("gap"), dict) and isinstance(item.get("gap"), dict):
+            needed = first["gap"].setdefault("needed_by", [])
+            needed.extend(i for i in item["gap"].get("needed_by", []) if i not in needed)
+    if mapping:
+        for item in kept:
+            for field in ("data", "patch"):
+                if field in item:
+                    item[field] = _rewrite_refs(item[field], mapping)
+    return kept
+
+
 def _replace_ref_values(value: object, aliases: dict[str, str]) -> object:
     if isinstance(value, dict):
         if set(value) == {"$ref"} and value["$ref"] in aliases:
@@ -323,7 +444,7 @@ def _gap_label_field(type_info: dict) -> str | None:
 
 def _fill_reference_gaps(conn, op: dict, data: dict, schema: dict, aliases: dict[str, str],
                          types: dict[str, dict], gaps: dict, settings,
-                         blocked: set[tuple[str, str]]) -> dict:
+                         blocked: set[tuple[str, str]], planner: _Planner | None = None) -> dict:
     if not getattr(settings, "capture_gap_fill", True):
         return data
     out = copy.deepcopy(data)
@@ -364,10 +485,11 @@ def _fill_reference_gaps(conn, op: dict, data: dict, schema: dict, aliases: dict
                     op["warnings"].append(f"gap limit reached: {value}")
                     rewritten.append(value)
                     continue
-                alias = f"g{len(gaps) + 1}"
+                alias = planner.gap_alias(gaps) if planner else f"g{len(gaps) + 1}"
                 gap_op = {
                     "id": alias, "op": "create_entity", "kind": "create_entity",
                     "type": ref_type, "ref": alias, "data": {label_field: value},
+                    **({"planned_ref": planner.new(ref_type)} if planner else {}),
                     "status": "valid", "errors": [], "warnings": [], "diff": [],
                     "label": f"Add missing {ref_type} — {value}"[:140],
                     "risk": "auto_gap", "requires": [],
@@ -377,6 +499,8 @@ def _fill_reference_gaps(conn, op: dict, data: dict, schema: dict, aliases: dict
                 }
                 gaps[key] = {"alias": alias, "op": gap_op}
                 aliases[alias] = alias
+                if planner:
+                    aliases[gap_op["planned_ref"]] = alias
             else:
                 alias = entry["alias"]
                 gap_op = entry["op"]
@@ -613,6 +737,7 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
 
     for name, schema in extended_schemas.items():
         all_types[name]["json_schema"] = schema
+    planner = _Planner(raw_ops)
 
     for index, candidate_op in enumerate(raw_ops, start=1):
         if not isinstance(candidate_op, dict):
@@ -665,7 +790,14 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                     self_alias = target_uid.casefold() == "self"
                     raw_op["target"] = owner["id"]
 
+        for key in ("data", "patch"):
+            if key in raw_op:
+                raw_op[key] = _planned_strings_to_refs(raw_op[key])
         op = _op_base(raw_op, index)
+        if kind == "create_entity":
+            op["planned_ref"] = planner.by_index[index]
+        else:
+            op.pop("planned_ref", None)
         requested_id = raw_op.get("id")
         if isinstance(requested_id, str) and requested_id and requested_id not in seen_ids:
             op["id"] = requested_id[:40]
@@ -782,11 +914,12 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                     questions.extend(ref_questions)
                     data = _fill_reference_gaps(
                         conn, op, data, _type_schema(info), aliases, all_types, ref_gaps,
-                        settings, ambiguous,
+                        settings, ambiguous, planner,
                     )
                     data = _inline_refs(data, literal_refs)
                     op["data"] = data
-                    ref_errors = [ref for ref in _walk_refs(data) if ref not in aliases]
+                    ref_errors = [ref for ref in _walk_refs(data)
+                                  if ref not in aliases and ref not in planner.forward]
                     if ref_errors:
                         raise ValueError("reference must name an earlier create op")
                     op["data"] = _replace_ref_values(data, aliases)
@@ -808,6 +941,7 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                             if not extras:
                                 if isinstance(raw_op.get("ref"), str) and raw_op["ref"]:
                                     literal_refs[raw_op["ref"]] = match["id"]
+                                literal_refs[op["planned_ref"]] = match["id"]
                                 raise OpReject(
                                     "duplicate_candidate",
                                     "This matches an existing record; the existing one is used.")
@@ -821,12 +955,16 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                         op["patch"] = data
                         op.pop("data", None)
                         op["warnings"].append("already exists")
+                        aliases[op["planned_ref"]] = duplicate
+                        literal_refs[op["planned_ref"]] = duplicate
+                        op.pop("planned_ref")
                         reference = raw_op.get("ref")
                         if isinstance(reference, str) and reference:
                             aliases[reference] = duplicate
                             literal_refs[reference] = duplicate
                         kind = "update_entity"
                     else:
+                        aliases[op["planned_ref"]] = op["id"]
                         reference = raw_op.get("ref")
                         if isinstance(reference, str) and reference:
                             aliases[reference] = op["id"]
@@ -870,10 +1008,11 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                         questions.extend(ref_questions)
                         patch = _fill_reference_gaps(
                             conn, op, patch, _type_schema(info), aliases, all_types, ref_gaps,
-                            settings, ambiguous,
+                            settings, ambiguous, planner,
                         )
                         patch = _inline_refs(patch, literal_refs)
-                        ref_errors = [ref for ref in _walk_refs(patch) if ref not in aliases]
+                        ref_errors = [ref for ref in _walk_refs(patch)
+                                      if ref not in aliases and ref not in planner.forward]
                         if ref_errors:
                             raise ValueError("reference must name an earlier create op")
                         patch = _replace_ref_values(patch, aliases)
@@ -902,10 +1041,11 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
                         questions.extend(ref_questions)
                         data = _fill_reference_gaps(
                             conn, op, data, _type_schema(info), aliases, all_types, ref_gaps,
-                            settings, ambiguous,
+                            settings, ambiguous, planner,
                         )
                         data = _inline_refs(data, literal_refs)
-                        ref_errors = [ref for ref in _walk_refs(data) if ref not in aliases]
+                        ref_errors = [ref for ref in _walk_refs(data)
+                                      if ref not in aliases and ref not in planner.forward]
                         if ref_errors:
                             raise ValueError("reference must name an earlier create op")
                         data = _replace_ref_values(data, aliases)
@@ -944,11 +1084,13 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
 
     for entry in ref_gaps.values():
         out.append(entry["op"])
+    out = _merge_planned_duplicates(out, {**all_types, **proposed})
 
     id_by_reference = {}
     for item in out:
-        if item.get("ref"):
-            id_by_reference[item["ref"]] = item["id"]
+        for name in (item.get("ref"), item.get("planned_ref")):
+            if name:
+                id_by_reference[name] = item["id"]
     for item in out:
         if item.get("status") in ("invalid", "rejected"):
             continue

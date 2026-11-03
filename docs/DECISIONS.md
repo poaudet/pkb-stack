@@ -267,3 +267,14 @@
   local stub; no live model call or live result was observed. Truncation, redaction corruption, and
   provider-specific schema behavior remain unconfirmed; these diagnostics do not change plan rules
   or operation limits.
+
+## Planned entities and edit persistence (T2/T3)
+- Every `create_entity` op carries a plan-scoped reference `planned_ref` (`@new:<type>:<n>`),
+  persisted with the plan and never renumbered by edits. It is accepted as `{"$ref": ...}` or as a
+  bare string in any reference field; the model's own `ref` aliases keep working.
+- Normalization accepts forward references (the existing dependency sort puts creates first) and
+  merges create ops that share a type and unique-key value, re-pointing their references.
+- `POST /api/capture/<id>/validate` accepts `persist: true`: the edited, re-validated plan is
+  stored (no entity rows are written). Validate results add `planned_ref` and `blocked_by`;
+  apply's 409 `dependency` error adds `blocked` with a reason, keeping `missing` unchanged.
+- Gap ops get collision-free aliases (`g<n>` never reuses an op id or ref in the plan).

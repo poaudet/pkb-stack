@@ -641,11 +641,16 @@ function renderOp(op) {
   }));
   for (const error of op.errors || []) validation.append(el("p", { className: "capture-error-text", textContent: error }));
   for (const warning of op.warnings || []) validation.append(el("p", { className: "capture-warning", textContent: warning }));
+  for (const need of op.blocked_by || []) validation.append(el("p", {
+    className: "capture-error-text", textContent: `Blocked: ${need.reason}.`,
+  }));
   card.append(validation);
+  if (op.planned_ref) card.append(el("p", { className: "meta", textContent: `Reference: ${op.planned_ref}` }));
   if (op.requires && op.requires.length) {
     for (const requirement of op.requires) {
       const required = (state.capture.plan.ops || []).find((item) => String(item.id) === String(requirement));
-      card.append(el("p", { className: "meta", textContent: `Needs: ${required && required.label || "another operation"}` }));
+      card.append(el("p", { className: "meta", textContent: `Needs: ${required && required.label || "another operation"}`
+          + (required && required.planned_ref ? ` (${required.planned_ref})` : "") }));
     }
   }
   const checkbox = el("input", {
@@ -684,7 +689,7 @@ function renderOp(op) {
   return card;
 }
 
-function requestBody() {
+function requestBody(all = false) {
   const ops = [];
   for (const op of state.capture.plan.ops || []) {
     const override = state.overrides.get(String(op.id)) || {};
@@ -693,7 +698,7 @@ function requestBody() {
     for (const key of ["data", "patch", "add_properties"]) {
       if (override[key]) item[key] = override[key];
     }
-    if (include || Object.keys(item).length > 1) ops.push(item);
+    if (all || include || Object.keys(item).length > 1) ops.push(item);
   }
   const body = {};
   if (ops.length) body.ops = ops;
@@ -786,13 +791,27 @@ async function validatePlan() {
   updateActionBar();
   const version = ++state.validateVersion;
   try {
-    const result = await captureApi.validate(state.capture.id, requestBody(), routeSignal());
+    const result = await captureApi.validate(
+      state.capture.id, { ...requestBody(true), persist: true }, routeSignal());
     if (version !== state.validateVersion) return;
     const updates = new Map(result.ops.map((op) => [String(op.id), op]));
+    const known = new Set((state.capture.plan.ops || []).map((op) => String(op.id)));
+    if (known.size !== updates.size || [...updates.keys()].some((id) => !known.has(id))) {
+      // An edit added or merged planned operations; the persisted plan is the source of truth.
+      const fresh = await captureApi.get(state.capture.id, routeSignal());
+      state.overrides = new Map();
+      state.selected = new Set((fresh.plan.ops || [])
+        .filter((op) => op.include).map((op) => String(op.id)));
+      state.validation = null;
+      await renderReadyPlan(fresh, false);
+      state.validationPending = false;
+      updateActionBar();
+      return;
+    }
     for (const op of state.capture.plan.ops || []) {
       const checked = updates.get(String(op.id));
       if (!checked) continue;
-      for (const key of ["status", "errors", "warnings", "diff", "requires", "risk", "label"]) {
+      for (const key of ["status", "errors", "warnings", "diff", "requires", "risk", "label", "planned_ref", "blocked_by"]) {
         if (checked[key] !== undefined) op[key] = checked[key];
       }
     }
