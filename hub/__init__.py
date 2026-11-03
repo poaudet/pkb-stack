@@ -8,6 +8,7 @@ def create_app(settings=None, embedder=None):
     from flask import Flask, jsonify
     from werkzeug.exceptions import HTTPException
 
+    from . import guard
     from . import self as self_svc
     from .api import admin, capture, entities, llm_settings, notes, pending, search, tools
     from .api import self as self_api
@@ -18,6 +19,9 @@ def create_app(settings=None, embedder=None):
 
     settings = settings or Settings.from_env()
     logging.basicConfig(level=getattr(logging, settings.log_level, logging.INFO))
+    guard_config = guard.load(block_secrets=settings.capture_block_secrets)
+    guard.configure(guard_config)
+    guard.log_startup(guard_config)
     app = Flask(__name__, static_folder="static", static_url_path="/static")
     app.config["MAX_CONTENT_LENGTH"] = settings.max_body_mb * 1024 * 1024
     hub = Hub(settings, embedder)

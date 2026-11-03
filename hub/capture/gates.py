@@ -2,22 +2,12 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from datetime import UTC, datetime, timedelta
 
+from .. import guard
 from ..config import Settings
 from ..db import tx
 from ..errors import ApiError
-
-SECRET_PATTERNS = (
-    ("openai_key", re.compile(r"sk-[A-Za-z0-9]{20,}")),
-    ("aws_key", re.compile(r"AKIA[0-9A-Z]{16}")),
-    ("private_key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
-    ("jwt", re.compile(r"eyJ[\w-]{10,}\.[\w-]{10,}\.")),
-    ("credential", re.compile(
-        r"(?i)(password|mot de passe|passwd|api[_ -]?key|token|secret)\s*[:=]\s*\S{6,}"
-    )),
-)
 
 
 def normalized_text(text: str) -> str:
@@ -28,27 +18,9 @@ def text_hash(text: str) -> str:
     return hashlib.sha256(normalized_text(text).encode("utf-8")).hexdigest()
 
 
-def _luhn(value: str) -> bool:
-    digits = [int(c) for c in value]
-    total = 0
-    parity = len(digits) % 2
-    for i, digit in enumerate(digits):
-        if i % 2 == parity:
-            digit *= 2
-            if digit > 9:
-                digit -= 9
-        total += digit
-    return total % 10 == 0
-
-
 def secret_kind(text: str) -> str | None:
-    for kind, pattern in SECRET_PATTERNS:
-        if pattern.search(text):
-            return kind
-    for match in re.finditer(r"(?<!\d)\d{13,19}(?!\d)", text):
-        if _luhn(match.group()):
-            return "payment_card"
-    return None
+    finding = guard.find_block(text)
+    return finding.kind if finding else None
 
 
 def current_day() -> str:
@@ -96,9 +68,9 @@ def gate(conn, settings: Settings, text: str, *, allow_secrets: bool = False,
     if len(text) > (max_chars or settings.capture_max_chars):
         raise ApiError("too_long", "text exceeds CAPTURE_MAX_CHARS; save it as a note", 400)
     if settings.capture_block_secrets and not allow_secrets:
-        kind = secret_kind(text)
-        if kind:
-            raise ApiError("secret_detected", f"possible {kind} detected", 409, kind=kind)
+        finding = guard.find_block(text)
+        if finding:
+            raise guard.blocked_error(finding)
     digest = text_hash(text)
     if not allow_duplicate:
         cutoff = (datetime.now(UTC) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
