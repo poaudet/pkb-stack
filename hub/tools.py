@@ -161,6 +161,20 @@ def _extend_entity_type(hub, conn, args, actor):
     return {"applied": True, "schema_version": result["version"], "type": result["type"]}
 
 
+def _remove_field(hub, conn, args, actor):
+    if not hub.settings.tools_allow_extend:
+        from .errors import ApiError
+
+        raise ApiError("forbidden", "type extension tool is disabled", 403)
+    name = args["name"]
+    policy.require_agent_visible(conn, name)
+    agent = actor if actor.startswith("agent:") else f"agent:{actor[:74]}"
+    result = entity_types.remove_field(
+        hub, conn, name, args["field"], actor=agent, confirm=args.get("confirm", False) is True)
+    result.pop("type_info", None)
+    return result
+
+
 def _type_args(a: dict) -> dict:
     return {k: a[k] for k in ("name", "description", "json_schema", "text_template",
                               "unique_key", "embed", "policy") if k in a}
@@ -248,6 +262,16 @@ TOOLS: list[Tool] = [
               "confirm": {"type": "boolean"}},
              ["name", "add_properties"]),
          _extend_entity_type, writes=True),
+    Tool("remove_entity_type_field",
+         "Remove an optional field from an entity type. Destructive: values are deleted from "
+         "every entity of the type (a copy is kept in the schema change log). Always call "
+         "with confirm=false first: it returns the affected count and up to 5 ids; show that "
+         "to the owner and call with confirm=true only after explicit approval. Required "
+         "fields, unique keys and types with policy.allow_extension=false are refused. "
+         "Example: {\"name\": \"person\", \"field\": \"nickname\", \"confirm\": false}.",
+         _obj({"name": _STR, "field": _STR, "confirm": {"type": "boolean"}},
+              ["name", "field"]),
+         _remove_field, writes=True, destructive=True),
     Tool("query_entities",
          "Exact structured lookup of entities. Use for 'when', 'who', 'last time' questions; "
          "reason over the returned rows yourself. Fields must be top-level fields of the type. "

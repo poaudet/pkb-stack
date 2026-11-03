@@ -52,6 +52,21 @@ def types_extend(name: str):
     return _run(extend_type)
 
 
+@bp.post("/api/entity-types/<name>/remove-field")
+def types_remove_field(name: str):
+    data = _body()
+    if set(data) - {"field", "confirm"} or "field" not in data:
+        raise validation("field is required; confirm is optional")
+
+    def remove(hub, conn):
+        result = type_svc.remove_field(
+            hub, conn, name, data["field"], actor=_actor(), confirm=data.get("confirm") is True)
+        result.pop("type_info", None)
+        return jsonify(result)
+
+    return _run(remove)
+
+
 @bp.get("/api/entity-types/<name>/history")
 def types_history(name: str):
     return _run(lambda h, c: jsonify(type_svc.history(c, name)))
