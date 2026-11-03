@@ -2,7 +2,8 @@
  "text_template":"{name} ({relationship}). Birthday: {birthday}. Habits: {habits}. Interests: {interests}. {notes}",
  "json_schema":{"type":"object","required":["name"],"properties":{
   "name":{"type":"string","description":"Person's name."},
-  "birthday":{"type":"string","format":"date","description":"Date of birth."},
+  "birthday":{"type":"string","pattern":"^(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$","description":"Birthday as MM-DD (month and day only, e.g. 04-12). Put the year in birth_year."},
+  "birth_year":{"type":"integer","minimum":1901,"maximum":9999,"description":"Year of birth, only when known (e.g. 1990)."},
   "relationship":{"type":"string","description":"How they relate to the owner. 'self' only for the owner's own record."},
   "contact":{"type":"object","properties":{
     "email":{"type":"string"},"phone":{"type":"string"}}},

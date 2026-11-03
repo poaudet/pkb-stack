@@ -11,9 +11,9 @@ import urllib.request
 from collections.abc import Callable
 
 PEOPLE = [
-    {"name": "Alice", "birthday": "1990-04-12", "relationship": "friend",
+    {"name": "Alice", "birthday": "04-12", "birth_year": 1990, "relationship": "friend",
      "habits": ["runs every morning", "drinks green tea"], "interests": ["climbing"]},
-    {"name": "Bob", "birthday": "1985-11-02", "relationship": "friend",
+    {"name": "Bob", "birthday": "11-02", "birth_year": 1985, "relationship": "friend",
      "habits": ["plays chess on Sundays"], "interests": ["chess", "cooking"]},
     {"name": "Vet", "relationship": "service", "contact": {"phone": "555-0100"}},
 ]

@@ -629,7 +629,13 @@ function fieldInput(name, prop) {
   }
   if (t === "string") {
     const fmt = prop.format === "date" ? "date" : prop.format === "date-time" ? "datetime-local" : "text";
-    return { input: el("input", { type: fmt }), get: (i) => i.value || undefined };
+    const input = el("input", { type: fmt });
+    if (prop.pattern) {
+      input.pattern = prop.pattern;
+      input.title = prop.description || "";
+      if (name === "birthday") input.placeholder = "MM-DD";
+    }
+    return { input, get: (i) => i.value || undefined };
   }
   return { input: el("textarea", { rows: 3, placeholder: "JSON" }),
     get: (i) => (i.value.trim() ? JSON.parse(i.value) : undefined) };

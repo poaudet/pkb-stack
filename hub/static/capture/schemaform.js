@@ -20,6 +20,11 @@ export function fieldControl(name, property, value, idPrefix = "") {
   } else if (kind === "string") {
     input = document.createElement("input");
     input.type = property.format === "date" ? "date" : "text";
+    if (property.pattern) {
+      input.pattern = property.pattern;
+      input.title = property.description || "";
+      if (name === "birthday") input.placeholder = "MM-DD";
+    }
     if (property.format === "date-time") input.placeholder = "YYYY-MM-DDTHH:mm:ssZ";
   } else if (kind === "array" && property.items && ["string", "number", "integer", "boolean"].includes(property.items.type)) {
     input = document.createElement("input");

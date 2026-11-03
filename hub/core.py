@@ -37,6 +37,9 @@ class Hub:
             self.needs_reindex = stored != self.embedder.model
             if not self.needs_reindex:
                 self.store.ensure(conn, int(db.get_meta(conn, "embed_dim") or self.embedder.dim))
+            from . import birthday
+
+            birthday.migrate(self, conn)
         finally:
             conn.close()
         if not settings.api_token:

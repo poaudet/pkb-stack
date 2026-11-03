@@ -154,6 +154,10 @@ def _clean_data(data: object, schema: dict) -> tuple[dict, list[str]]:
         else:
             value = _coerce(value, prop)
         out[key] = value
+    if "birth_year" in props:
+        from .. import birthday
+
+        out = birthday.normalize(out)
     return out, warnings
 
 

@@ -479,6 +479,10 @@ def entity_title(type_name: str, data: dict) -> str:
 def validate_data(type_row: sqlite3.Row, data: object) -> dict:
     if not isinstance(data, dict):
         raise validation("data must be a JSON object")
+    if "birth_year" in json.loads(type_row["json_schema"]).get("properties", {}):
+        from . import birthday
+
+        data = birthday.normalize(data)
     if len(json.dumps(data, ensure_ascii=False).encode()) > MAX_DATA_BYTES:
         raise ApiError("too_large", "entity data exceeds 64 KB", 413)
     errs = sorted(_Validator(json.loads(type_row["json_schema"])).iter_errors(data),
