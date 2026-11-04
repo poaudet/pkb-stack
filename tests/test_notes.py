@@ -61,6 +61,21 @@ def test_archive_restore(client):
     assert search(client, "archive")
 
 
+def test_include_superseded_does_not_surface_archived(client):
+    a = mk_note(client, "Zephyr archived marker")
+    b = mk_note(client, "Quokka superseded marker")
+    client.post(f"/api/notes/{a['id']}/archive", json={})
+    client.post(f"/api/notes/{b['id']}/supersede", json={"content": "Quokka replaced marker"})
+
+    def ids(q, **kw):
+        return [h["id"] for h in search(client, q, **kw)]
+
+    assert a["id"] not in ids("Zephyr archived marker", include_superseded=True)
+    assert a["id"] in ids("Zephyr archived marker", include_archived=True)
+    assert b["id"] not in ids("Quokka superseded marker", include_archived=True)
+    assert b["id"] in ids("Quokka superseded marker", include_superseded=True)
+
+
 def test_duplicate(client):
     mk_note(client, "same text")
     r = client.post("/api/notes", json={"content": "same text"})

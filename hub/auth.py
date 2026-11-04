@@ -85,8 +85,8 @@ LOGIN_PAGE = """<!doctype html><html lang="en"><meta charset="utf-8">
 <button type="submit">Sign in</button></form><p>{message}</p></body></html>"""
 
 
-def init_auth(app: Flask, token: str, mode: str = "", proxy_header: str = "X-Forwarded-User"
-              ) -> str:
+def init_auth(app: Flask, token: str, mode: str = "", proxy_header: str = "X-Forwarded-User",
+              proxy_hops: int = 0) -> str:
     chosen = resolve_mode(mode, token, proxy_header)
     app.config["PKB_AUTH_MODE"] = chosen
     if chosen == "none":
@@ -95,6 +95,13 @@ def init_auth(app: Flask, token: str, mode: str = "", proxy_header: str = "X-For
     signer = _serializer(token) if chosen == "token" else None
 
     def client_key() -> str:
+        # Behind N trusted proxies the Nth address from the right is the real client;
+        # without it every client shares the proxy's address and one can lock out all.
+        if proxy_hops > 0:
+            hops = [h.strip() for h in request.headers.get("X-Forwarded-For", "").split(",")
+                    if h.strip()]
+            if len(hops) >= proxy_hops:
+                return hops[-proxy_hops]
         return request.remote_addr or "unknown"
 
     def token_matches(supplied: str) -> bool:

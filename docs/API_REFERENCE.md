@@ -100,7 +100,9 @@ vectors, search rows, and type history transactionally. No delete-type agent too
 
 - `mode`: `atomic` (default; any failure rolls everything back, later ops are `skipped`) or `partial`
   (each op is isolated; good ops are kept). `dry_run=true` validates and saves nothing.
-- Response `200`: `{ok, mode, dry_run, committed, results:[{index, op, ok, result|error}], embeddings}`.
+- Response `200`: `{ok, mode, dry_run, committed, results:[{index, op, ref?, status, id?, ok, result|error}], embeddings}`.
+  `status` is `ok`, `error` or `skipped`; `ref` echoes the op's optional `ref` string; `id` is the
+  created or changed entity/note id.
   A failed atomic batch is still `200` with `committed:false`.
 - `400` malformed envelope; `413` more than `PKB_BATCH_MAX_OPS` (default 100) operations.
 - Embeddings are computed once after commit; if that fails the data stays saved

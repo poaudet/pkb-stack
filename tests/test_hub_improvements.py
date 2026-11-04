@@ -157,6 +157,22 @@ def test_capture_exclusion_covers_catalog_candidates_normalize_and_apply(tmp_pat
     assert rejected.get_json()["error"]["code"] == "type_excluded"
 
 
+def test_capture_exclusion_applies_after_event_to_task_mapping(tmp_path, capture_stub):
+    stub = capture_stub
+    _app, client = make_capture_client(tmp_path, stub, capture_exclude_types="task")
+    assert _type(client, "task", properties={"title": {"type": "string"}}).status_code == 201
+    stub.reply = json.dumps({
+        "summary": "Call the plumber",
+        "ops": [{"id": "e1", "op": "create_entity", "type": "event",
+                 "data": {"title": "Call the plumber", "date": "2026-11-05"}}],
+        "keep_note": False, "questions": [],
+    })
+    capture = wait_capture(client, submit(client, "I need to call the plumber tomorrow."))
+    assert capture["state"] == "ready"
+    assert capture["plan"]["ops"] == []
+    assert "type_excluded" in capture["plan"]["warnings"]
+
+
 def test_extend_entity_type_tool_dry_run_confirm_idempotence_and_gate(mk):
     client = mk().test_client()
     assert _type(client, "book").status_code == 201

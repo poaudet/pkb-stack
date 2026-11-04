@@ -30,6 +30,20 @@ def test_atomic_success_creates_everything_and_is_searchable(client):
     assert "batch note one" in str(hits)
 
 
+def test_results_carry_ref_status_and_id(client):
+    ops = [{**OPS[0], "ref": "p1"}, {"op": "create_entity", "type": "person", "data": {}},
+           {**OPS[1], "ref": "n1"}]
+    body = post(client, {"ops": ops}).get_json()
+    first, failed, skipped = body["results"]
+    assert first["status"] == "ok" and first["ref"] == "p1"
+    assert failed["status"] == "error" and skipped["status"] == "skipped"
+    assert skipped["ref"] == "n1"
+    ok = post(client, {"ops": [{**OPS[0], "ref": "p1"}, OPS[1]]}).get_json()["results"]
+    assert ok[0]["status"] == "ok" and ok[0]["ref"] == "p1"
+    assert ok[0]["id"] == ok[0]["result"]["entity"]["id"]
+    assert ok[1]["id"] == ok[1]["result"]["note"]["id"] and "ref" not in ok[1]
+
+
 def test_atomic_failure_rolls_back_all(client):
     ops = [OPS[0], {"op": "create_entity", "type": "person", "data": {}}, OPS[1]]
     body = post(client, {"ops": ops}).get_json()

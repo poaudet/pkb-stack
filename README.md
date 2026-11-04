@@ -16,14 +16,14 @@ The **Personal Knowledge Hub** is designed as a single-user, long-term personal 
 ### Key Features
 
 - **Hybrid Search Engine**: Blends SQLite FTS5 (BM25 keyword search) with vector embeddings (`sqlite-vec`) using Reciprocal Rank Fusion (RRF) for fast, highly relevant search results.
-- **Structured Entities & Markdown Notes**: Store freeform notes with bi-directional wikilinks (`[[Note Name]]`) alongside strongly-typed, schema-validated entities with uniqueness constraints and audit trails.
+- **Structured Entities & Markdown Notes**: Store freeform Markdown notes alongside strongly-typed, schema-validated entities with uniqueness constraints and audit trails.
 - **Model Context Protocol (MCP) Bridge**: First-class MCP server (`hub_mcp`) supporting both Streamable HTTP (SSE) and standard I/O (`stdio`) transports, allowing AI agents to query and curate knowledge seamlessly.
 - **AI Smart Capture & Tidy-Up**: Optional background processing via local (Ollama) or remote (OpenAI-compatible) LLMs to decompose unstructured notes into structured records.
 - **Zero Lock-In & Data Sovereignty**:
   - Live markdown mirroring under `/data/notes` keeps your notes accessible in plain text.
   - Pure SQLite storage (`knowledge.db`) using stdlib `sqlite3` in WAL mode—no heavy ORMs.
   - Online, non-blocking backups via `VACUUM INTO` and ZIP exports.
-  - Automated offsite backup profile using `rclone`.
+  - Backups to any location you choose (the data lives in one volume, `/data`).
 
 ---
 
@@ -68,30 +68,11 @@ Open the Web UI:
 open http://127.0.0.1:5000
 ```
 
-### 3. Optional Compose Profiles
+### 3. Optional services
 
-The stack includes optional profiles for additional capabilities:
-
-- **MCP Bridge** (`--profile mcp`):
-  Runs the Model Context Protocol HTTP service on port 8000:
-  ```bash
-  docker compose --profile mcp up -d
-  ```
-
-- **Local LLM** (`--profile local-llm`):
-  Runs an Ollama container for local embeddings and AI tidy-up:
-  ```bash
-  docker compose --profile local-llm up -d
-  ```
-
-- **Off-Site Backup** (`--profile backup`):
-  Runs continuous `rclone` synchronization for `/data/notes` and `/data/backups`:
-  ```bash
-  # Configure rclone remote interactively first:
-  docker compose run --rm backup config
-  # Start the sync service:
-  docker compose --profile backup up -d
-  ```
+The compose files define no profiles. A local LLM (for example Ollama) and off-site backup
+(for example `rclone` against the `hub_data` volume or `/data`) are not shipped here; run
+them yourself and point `LLM_*`, `CAPTURE_LLM_*` or `EMBED_*` at them.
 
 ---
 
@@ -101,19 +82,22 @@ The repository includes a dedicated MCP bridge (`hub_mcp`) implementing the [Mod
 
 ### Available MCP Tools
 
+The hub publishes its tool manifest at `/api/tools`; the bridge exposes whatever the hub lists,
+so `GET /api/tools` is authoritative.
+
 | Tool | Description |
 |---|---|
-| `search` | Hybrid search across notes and entities (query, limit, entity_type filter). |
-| `read_note` | Retrieve note content, metadata, and revision info by ID. |
-| `save_note` | Create a new note or supersede an existing note with new content. |
-| `list_recent_notes`| Retrieve a list of recently created or modified notes. |
-| `read_entity` | Retrieve a structured entity by UID or unique key. |
-| `save_entity` | Create or update a structured entity with schema validation. |
-| `find_entities` | Search and filter entities by type and JSON field criteria. |
-| `get_self` | Retrieve profile information about the knowledge base owner. |
-| `list_types` | List all available entity types and schemas. |
+| `get_self` | Read the owner's own facts (preferences, habits, birthday). |
+| `search_knowledge` | Hybrid keyword and semantic search across notes and entities. |
+| `get_note` / `create_note` | Fetch a note by id / save a free-text note (agent notes may need review). |
+| `supersede_note` / `archive_note` | Replace a note with a new version / hide it (undoable). |
+| `list_entity_types` | List entity types with their JSON Schema. Call this first. |
+| `query_entities` / `get_entity` | Exact structured lookup / fetch one entity by id. |
+| `create_entity` / `update_entity` | Create a record of an existing type / merge-patch some fields. |
+| `supersede_entity` / `archive_entity` | Replace an entity with a new document / hide it (undoable). |
 | `batch` | Many writes in one call (atomic or partial, optional dry run). |
 | `extend_entity_type` | Preview and, after owner approval, add optional fields to a type. |
+| `create_entity_type`, `remove_entity_type_field`, `forget_note`, `forget_entity` | Schema changes and permanent deletes; gated by `TOOLS_ALLOW_EXTEND` / `TOOLS_ALLOW_DESTRUCTIVE`. |
 
 ### Connecting to Claude Desktop / Cursor
 
@@ -161,11 +145,16 @@ Or run via Python in a local environment:
 
 #### Option B: Streamable HTTP (SSE) Transport
 
-When running via `docker compose --profile mcp up -d`, the MCP server listens on port `8000` (configurable via `MCP_PORT`). Point your MCP-compatible client to:
+When running via `docker-compose.mcp.yml` or `docker-compose.hub-mcp.yml`, the MCP server listens on port `8000` (configurable via `MCP_PORT`). Point your MCP-compatible client to:
 
 ```
 http://127.0.0.1:8000/mcp
 ```
+
+When `API_TOKEN` is set, the HTTP endpoint requires the same token as a bearer header
+(`Authorization: Bearer <API_TOKEN>`) and returns 401 otherwise. The bridge uses the same token
+to call the hub. Without `API_TOKEN` the endpoint is open (a warning is logged); keep it on
+loopback. The stdio transport has no network listener.
 
 ---
 
@@ -188,7 +177,7 @@ Key variables defined in `.env.example`:
 | `MCP_TRANSPORT` | `streamable-http` | `streamable-http` or `stdio`. |
 | `MCP_PORT` | `8000` | Port for MCP Streamable HTTP service. |
 | `CAPTURE_ENABLED` | `true` | Enable Smart Capture pipeline for automated entity extraction. |
-| `CAPTURE_EXCLUDE_TYPES` | `place_visit,task,grocery_list,grocery_item,plainlist_settings` | Exclude application-owned records from Capture. |
+| `CAPTURE_EXCLUDE_TYPES` | _empty_ (`.env.example` sets `place_visit,task,grocery_list,grocery_item,plainlist_settings`) | Comma-separated types Capture must not read or write. |
 | `CAPTURE_LONG_MODE` | `auto` | `auto` switches to chunked long capture above `CAPTURE_LONG_THRESHOLD_CHARS`; `off` disables it. |
 | `CAPTURE_LONG_THRESHOLD_CHARS` | `4000` | Text longer than this uses long capture in `auto` mode. |
 | `CAPTURE_LONG_MAX_CHARS` | `60000` | Longest accepted long capture; above it the API returns 413 `too_large` with the limit. |
@@ -302,11 +291,11 @@ All actions are pinned to commit SHAs.
 
 ## Security & Privacy Notice
 
-- **Privacy**: All data stays in your `DATA_DIR` (SQLite plus markdown mirrors). Nothing leaves your machine unless you configure a remote embedding or LLM endpoint (`EMBED_BACKEND=openai`, `LLM_*`, `CAPTURE_LLM_*`); any OpenAI-compatible server, including local ones, works. A sensitive-data guard redacts or blocks secrets before storage and before text is sent to a model.
+- **Privacy**: All data stays in your `DATA_DIR` (SQLite plus markdown mirrors). Nothing leaves your machine unless you configure a remote embedding or LLM endpoint (`EMBED_BACKEND=openai`, `LLM_*`, `CAPTURE_LLM_*`); any OpenAI-compatible server, including local ones, works. The sensitive-data guard runs on Capture input (redaction before the capture model sees the text, secret blocking before anything is stored) and on batch writes (block-mode detectors only). It does not scan direct note or entity writes, AI tidy-up (`LLM_*`) or remote embeddings, so do not point those at an endpoint you do not trust with such text; see `docs/GUARD_CONFIG.md`.
 - **Auth modes** (`PKB_AUTH_MODE`):
-  - `token`: bearer `API_TOKEN` (32+ characters, constant-time compare, failures rate limited to 10 per minute per address). The web UI signs in at `/login` and keeps a signed, HttpOnly, SameSite=Strict cookie.
+  - `token`: bearer `API_TOKEN` (32+ characters, constant-time compare, failures rate limited to 10 per minute per client address; behind a reverse proxy set `PKB_TRUSTED_PROXY_HOPS` so clients are told apart by `X-Forwarded-For` instead of sharing the proxy's address). The web UI signs in at `/login` and keeps a signed, HttpOnly, SameSite=Strict cookie.
   - `proxy`: trust `PKB_AUTH_PROXY_HEADER` set by your authenticating reverse proxy. Only expose the hub through that proxy.
-  - `none`: no authentication; loopback use only.
+  - `none`: no authentication; loopback use only. This is the fallback when `API_TOKEN` is empty (a warning is logged at startup), so set `API_TOKEN` before exposing the hub.
 - **Public paths**: only `/health` (status only when unauthenticated), `/login` and `/logout`.
 - **Network Isolation**: Services bind to `127.0.0.1` by default. Put an HTTPS reverse proxy in front before exposing the hub.
 - **Logging**: Note and entity content is never logged above `DEBUG`.

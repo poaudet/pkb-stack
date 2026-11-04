@@ -120,6 +120,18 @@ def _run_op(hub, conn, op: dict, actor: str, queue: list[str]) -> object:
     raise validation(f"unknown op {name!r}; expected one of {', '.join(OPS)}")
 
 
+def _finish(entry: dict, op: dict) -> dict:
+    """Add the caller's ref, a status word and the affected record id to a result."""
+    entry["status"] = ("skipped" if entry.get("skipped") else "ok" if entry["ok"] else "error")
+    if isinstance(op.get("ref"), str):
+        entry["ref"] = op["ref"]
+    result = entry.get("result")
+    record = result.get("entity") or result.get("note") if isinstance(result, dict) else None
+    if isinstance(record, dict) and "id" in record:
+        entry["id"] = record["id"]
+    return entry
+
+
 def _error(exc: ApiError) -> dict:
     return {"code": exc.code, "message": exc.message, **exc.extra}
 
@@ -173,7 +185,7 @@ def run(hub, conn, body: object, actor: str) -> dict:
                     conn.execute("RELEASE batch_op")
                     entry.update(ok=False, error=_error(exc))
                     failed = True
-            results.append(entry)
+            results.append(_finish(entry, op))
         commit = not dry_run and not (failed and mode == "atomic")
         conn.execute("COMMIT" if commit else "ROLLBACK")
     except BaseException:

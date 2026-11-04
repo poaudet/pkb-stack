@@ -16,6 +16,9 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-mcp.txt -r requirements-dev.txt
       - run: ruff check .
       - run: pytest -q
+      - run: playwright install --with-deps chromium
+      # test_capture_page.py and test_capture_edit_owner_schema.py still assume the old token prompt
+      - run: pytest -q -m e2e tests/e2e/test_entity_editor.py
   secrets:
     runs-on: ubuntu-latest
     steps:

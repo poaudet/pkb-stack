@@ -102,7 +102,7 @@ def _run(hub: Hub, conn, q, qvec, k, p) -> list[dict]:
     for r in owners:
         if r["status"] != "current" and not (
             (r["status"] == "archived" and p["include_archived"])
-            or p["include_superseded"]
+            or (r["status"] == "superseded" and p["include_superseded"])
         ):
             continue
         if p["kinds"] is not None and r["kind"] not in p["kinds"]:

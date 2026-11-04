@@ -76,6 +76,16 @@ def test_failed_attempts_are_rate_limited(secured):
     assert secured.get("/api/stats", headers=BEARER).status_code == 429
 
 
+def test_rate_limit_keys_on_forwarded_client_behind_trusted_proxy(mk):
+    client = mk(api_token=TOKEN, trusted_proxy_hops=1).test_client()
+    bad = {"Authorization": "Bearer wrong", "X-Forwarded-For": "203.0.113.9"}
+    for _ in range(10):
+        assert client.get("/api/stats", headers=bad).status_code == 401
+    assert client.get("/api/stats", headers=bad).status_code == 429
+    other = {**BEARER, "X-Forwarded-For": "198.51.100.4"}
+    assert client.get("/api/stats", headers=other).status_code == 200
+
+
 @pytest.mark.parametrize("args", [
     ("token", "short", "X"), ("bogus", TOKEN, "X"), ("token", "", "X"), ("proxy", "", " "),
 ])

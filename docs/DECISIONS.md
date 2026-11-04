@@ -303,3 +303,17 @@ block mode only (redaction would silently alter direct API data).
 - `PKB_AUTH_MODE` selects token/proxy/none. Token mode requires 32+ characters, compares in constant time and rate limits failures.
 - UI sessions use an itsdangerous-signed cookie. No new dependency: itsdangerous ships with Flask.
 - Unauthenticated `/health` is status-only so the Docker HEALTHCHECK keeps working without leaking data.
+- The MCP bridge's streamable-HTTP endpoint requires `Authorization: Bearer <API_TOKEN>` when
+  `API_TOKEN` is set (ASGI middleware, constant-time compare); the bridge still calls the hub with
+  the same token. With no token it stays open and logs a warning, like the hub's `none` mode.
+- Empty `API_TOKEN` still falls back to `none` (loopback-only default bind) rather than refusing to
+  start, so local development works; this is documented in the README.
+- The failed-auth limiter keys on `remote_addr`. `PKB_TRUSTED_PROXY_HOPS=N` (default 0) makes it use
+  the Nth-from-right `X-Forwarded-For` entry so one client cannot lock out every user behind a proxy.
+- T4: the guard covers Capture and block-mode detectors on batch writes only. Note/entity writes, tidy-up
+  and remote embeddings are not scanned (documented in `docs/GUARD_CONFIG.md`).
+- T5b: unparseable legacy birthdays are moved to `notes` (kept, logged) because leaving them in
+  `birthday` would break the `MM-DD` pattern for every later edit. The UI uses month and day pickers.
+- T6: batch results carry `index`, `op`, `ok`, `status`, optional `ref`, `id`, plus `result|error`.
+  Embedding failures are reported in `embeddings`; vectors are repaired by a full reindex (there is
+  no per-chunk "needs embedding" marker).

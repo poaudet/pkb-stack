@@ -1,6 +1,7 @@
 # Sensitive-data guard configuration
 
-Every capture input is checked by `hub/guard.py` before storage or any LLM call.
+Every capture input is checked by `hub/guard.py` before storage or any capture LLM call, and
+batch writes are checked for block-mode detectors only.
 Each detector has a mode: `redact` (replace with `[REDACTED:<kind>]`), `block`
 (reject with 409 `secret_detected`; the response carries kind, detector and
 position, never the value) or `off`.
@@ -23,4 +24,4 @@ Other settings:
 Unknown `PKB_GUARD_*` variables, invalid modes or bad regexes stop startup with a clear
 error. Turning any detector `off` logs a warning at startup, sets `guard.reduced` in
 `/health`, and shows a banner on the Status tab. Logs never include matched values.
-Note: the tidy-up LLM path and embeddings are not covered by the guard.
+Not covered: direct note and entity writes, the tidy-up LLM path (`hub/llm.py`) and remote embeddings.
