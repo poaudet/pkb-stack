@@ -53,6 +53,7 @@ class Settings:
     batch_max_ops: int = 100
     auth_mode: str = ""
     auth_proxy_header: str = "X-Forwarded-User"
+    trusted_proxy_hops: int = 0
     capture_enabled: bool = True
     capture_llm_base_url: str = ""
     capture_llm_api_key: str = ""
@@ -116,6 +117,7 @@ class Settings:
             batch_max_ops=max(1, _int("PKB_BATCH_MAX_OPS", _int("BATCH_MAX_OPS", 100))),
             auth_mode=_str("PKB_AUTH_MODE"),
             auth_proxy_header=_str("PKB_AUTH_PROXY_HEADER", "X-Forwarded-User"),
+            trusted_proxy_hops=max(0, _int("PKB_TRUSTED_PROXY_HOPS", 0)),
             capture_enabled=_bool("CAPTURE_ENABLED", True),
             capture_llm_base_url=_str("CAPTURE_LLM_BASE_URL"),
             capture_llm_api_key=_str("CAPTURE_LLM_API_KEY"),

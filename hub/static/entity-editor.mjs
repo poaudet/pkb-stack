@@ -33,6 +33,47 @@ function localDateTime(value) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August",
+  "September", "October", "November", "December"];
+
+export function isBirthdayField(name, property) {
+  return name === "birthday" && property.type === "string" && Boolean(property.pattern);
+}
+
+export function birthdayPicker(initial) {
+  const [month = "", day = ""] = /^\d\d-\d\d$/.test(initial || "") ? initial.split("-") : [];
+  const fieldset = document.createElement("fieldset");
+  const make = (label, values) => {
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", label);
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = label;
+    select.append(empty);
+    for (const [value, text] of values) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = text;
+      select.append(option);
+    }
+    return select;
+  };
+  const pad = (n) => String(n).padStart(2, "0");
+  const monthSelect = make("Month", MONTHS.map((name, index) => [pad(index + 1), name]));
+  const daySelect = make("Day", Array.from({ length: 31 }, (_, index) => [pad(index + 1), index + 1]));
+  monthSelect.value = month;
+  daySelect.value = day;
+  fieldset.append(monthSelect, daySelect);
+  return {
+    input: fieldset,
+    read() {
+      if (!monthSelect.value && !daySelect.value) return undefined;
+      if (!monthSelect.value || !daySelect.value) throw new Error("Choose both month and day");
+      return `${monthSelect.value}-${daySelect.value}`;
+    },
+  };
+}
+
 function scalarInput(name, property, initial, refOptions) {
   const input = document.createElement("input");
   const kind = property.type;
@@ -82,7 +123,8 @@ function scalarInput(name, property, initial, refOptions) {
         return input.value === "" ? undefined : Number(input.value);
       }
       if (property.format === "date-time") {
-        return input.value ? new Date(input.value).toISOString() : undefined;
+        if (!input.value) return undefined;
+        return input.value === localDateTime(initial) ? initial : new Date(input.value).toISOString();
       }
       return input.value === "" ? undefined : input.value;
     },
@@ -107,6 +149,31 @@ function fieldControl(name, property, initial, refOptions) {
     return {
       input,
       read: () => input.value === "" ? undefined : property.enum[Number(input.value)],
+    };
+  }
+  if (property.type === "array" && property.items?.type === "string" && property["x-ref"]) {
+    const input = document.createElement("select");
+    input.multiple = true;
+    const current = Array.isArray(initial) ? initial : [];
+    const options = [...(refOptions[property["x-ref"]] || [])];
+    for (const id of current) {
+      if (!options.some((option) => option.id === id)) options.push({ id, label: id });
+    }
+    for (const option of options) {
+      const item = document.createElement("option");
+      item.value = option.id;
+      item.textContent = option.label;
+      item.selected = current.includes(option.id);
+      input.append(item);
+    }
+    return {
+      input,
+      read() {
+        const ids = [...input.selectedOptions].map((item) => item.value);
+        if (!ids.length) return undefined;
+        const unchanged = ids.length === current.length && current.every((id) => ids.includes(id));
+        return unchanged ? current : ids;
+      },
     };
   }
   if (property.type === "array" && property.items) {
@@ -158,6 +225,7 @@ function fieldControl(name, property, initial, refOptions) {
     input.value = initial ?? "";
     return { input, read: () => input.value === "" ? undefined : input.value };
   }
+  if (isBirthdayField(name, property)) return birthdayPicker(initial);
   if (["string", "number", "integer", "boolean"].includes(property.type)) {
     return scalarInput(name, property, initial, refOptions);
   }

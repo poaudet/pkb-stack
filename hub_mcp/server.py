@@ -1,6 +1,8 @@
 """MCP bridge: exposes the hub's /api/tools manifest as MCP tools (stdio or streamable HTTP)."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -49,6 +51,28 @@ def _result(text: str, is_error: bool) -> types.CallToolResult:
     return types.CallToolResult(content=[types.TextContent(text=text)], isError=is_error)
 
 
+class RequireBearer:
+    """ASGI middleware: reject HTTP requests lacking the shared API token."""
+
+    def __init__(self, app, token: str) -> None:
+        self.app = app
+        self._digest = hashlib.sha256(token.encode()).digest()
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] == "http":
+            supplied = dict(scope["headers"]).get(b"authorization", b"").decode("latin-1")
+            candidate = supplied[7:] if supplied.startswith("Bearer ") else ""
+            if not hmac.compare_digest(hashlib.sha256(candidate.encode()).digest(), self._digest):
+                body = b'{"error":"unauthorized"}'
+                await send({"type": "http.response.start", "status": 401, "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                    (b"www-authenticate", b"Bearer")]})
+                await send({"type": "http.response.body", "body": body})
+                return
+        await self.app(scope, receive, send)
+
+
 def _headers() -> dict[str, str]:
     token = os.environ.get("API_TOKEN", "")
     return {"Authorization": f"Bearer {token}"} if token else {}
@@ -79,6 +103,12 @@ def main(argv: list[str]) -> int:
 
         host = os.environ.get("MCP_HOST", "0.0.0.0")
         app = server.streamable_http_app(host=host)
+        token = os.environ.get("API_TOKEN", "")
+        if token:
+            app = RequireBearer(app, token)
+        else:
+            log.warning("API_TOKEN is empty: the MCP endpoint is unauthenticated. "
+                        "Do not expose it.")
         uvicorn.run(app, host=host, port=int(os.environ.get("MCP_PORT", "8000")))
         return 0
     print(f"unknown MCP_TRANSPORT {transport!r} (stdio|streamable-http)", file=sys.stderr)

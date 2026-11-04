@@ -1,0 +1,5 @@
+services:
+  hub:
+    environment:
+      API_TOKEN: ${SMOKE_TOKEN:?set SMOKE_TOKEN}
+      PKB_AUTH_MODE: token

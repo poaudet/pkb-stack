@@ -58,6 +58,40 @@ def test_entity_editor_diff_and_schema_controls(page, ui_server):
 
 
 @pytest.mark.e2e
+def test_entity_editor_ref_arrays_and_datetime_round_trip(page, ui_server):
+    open_app(page, ui_server())
+    result = page.evaluate("""async () => {
+      const { createEntityEditor, diffEntity } = await import('/static/entity-editor.mjs');
+      const schema = {type: 'object', properties: {
+        at: {type: 'string', format: 'date-time'},
+        people: {type: 'array', items: {type: 'string'}, 'x-ref': 'person'}
+      }};
+      const data = {at: '2026-10-18T12:00:00Z', people: ['b', 'a']};
+      const editor = createEntityEditor(schema, data,
+        {person: [{id: 'a', label: 'Alice'}, {id: 'b', label: 'Bob'}]});
+      const labels = [...editor.form.querySelectorAll('#entity-field-people option')]
+        .map((option) => option.textContent);
+      return {labels, patch: diffEntity(data, editor.values(), editor.required)};
+    }""")
+    assert result["labels"] == ["Alice", "Bob"]
+    assert result["patch"] == {}
+
+
+@pytest.mark.e2e
+def test_birthday_uses_month_and_day_pickers(page, ui_server):
+    open_app(page, ui_server())
+    result = page.evaluate("""async () => {
+      const { createEntityEditor } = await import('/static/entity-editor.mjs');
+      const schema = {type: 'object', properties: {
+        birthday: {type: 'string', pattern: '^(0[1-9]|1[0-2])-(0[1-9]|[12]\\\\d|3[01])$'}}};
+      const editor = createEntityEditor(schema, {birthday: '04-12'});
+      const selects = [...editor.form.querySelectorAll('select')];
+      return {count: selects.length, value: editor.values().birthday};
+    }""")
+    assert result == {"count": 2, "value": "04-12"}
+
+
+@pytest.mark.e2e
 def test_ui_edit_handles_stale_entity_reload_and_save(page, ui_server):
     base_url = ui_server()
     open_app(page, base_url)

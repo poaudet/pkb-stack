@@ -4,17 +4,21 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 PORT="${PORT:-5000}"
 BASE="http://127.0.0.1:${PORT}"
-AUTH=()
-[ -n "${API_TOKEN:-}" ] && AUTH=(-H "Authorization: Bearer ${API_TOKEN}")
-cleanup() { docker compose down; }
+# A throwaway token is always set so the smoke test also proves auth is enforced.
+export SMOKE_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+AUTH=(-H "Authorization: Bearer ${SMOKE_TOKEN}")
+COMPOSE=(docker compose -f docker-compose.yml -f scripts/smoke.compose.yml)
+cleanup() { "${COMPOSE[@]}" down; }
 trap cleanup EXIT
 
-docker compose up -d $([ "${SMOKE_BUILD:-1}" = 1 ] && echo --build)
+"${COMPOSE[@]}" up -d $([ "${SMOKE_BUILD:-1}" = 1 ] && echo --build)
 for _ in $(seq 1 60); do
   if curl -fsS "$BASE/health" >/dev/null 2>&1; then break; fi
   sleep 2
 done
 curl -fsS "$BASE/health"; echo
+test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/stats")" = 401
+test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer wrong' "$BASE/api/stats")" = 401
 
 jget() { python3 -c "import sys,json; d=json.load(sys.stdin); print($1)"; }
 req() { curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' "$@"; }

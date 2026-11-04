@@ -46,3 +46,10 @@ def ui_server(tmp_path):
         stub_thread.join(timeout=2)
         app.extensions["hub"].capture_queue.pool.shutdown(wait=True)
         app.extensions["hub"].queue.pool.shutdown(wait=True)
+
+
+@pytest.fixture(autouse=True)
+def authenticated_browser(page):
+    # The UI redirects anonymous browsers to /login; send the bearer on every request instead.
+    page.context.set_extra_http_headers({"Authorization": f"Bearer {TOKEN}"})
+    page.add_init_script(f"localStorage.setItem('hub_token', '{TOKEN}')")

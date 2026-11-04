@@ -4,7 +4,9 @@ import { initCapture, leaveCapture, routeCapture } from "./capture/page.js";
 import { confirmDialog } from "./capture/dialog.js";
 import { renderOwnerChip, renderOwnerForm } from "./owner.js";
 import { refreshTypes, renderTypeDetails } from "./types.js";
-import { createEntityEditor, diffEntity } from "./entity-editor.mjs";
+import {
+  birthdayPicker, createEntityEditor, diffEntity, isBirthdayField,
+} from "./entity-editor.mjs";
 
 const $ = (id) => document.getElementById(id);
 const tabNames = new Set(["capture", "search", "add", "review", "browse", "entities", "settings", "status"]);
@@ -627,13 +629,16 @@ function fieldInput(name, prop) {
         return prop.items.type === "string" ? v : v.map((x) => (prop.items.type === "boolean" ? x === "true" : Number(x)));
       } };
   }
+  if (isBirthdayField(name, prop)) {
+    const picker = birthdayPicker();
+    return { input: picker.input, get: () => picker.read() };
+  }
   if (t === "string") {
     const fmt = prop.format === "date" ? "date" : prop.format === "date-time" ? "datetime-local" : "text";
     const input = el("input", { type: fmt });
     if (prop.pattern) {
       input.pattern = prop.pattern;
       input.title = prop.description || "";
-      if (name === "birthday") input.placeholder = "MM-DD";
     }
     return { input, get: (i) => i.value || undefined };
   }

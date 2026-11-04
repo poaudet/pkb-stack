@@ -41,7 +41,8 @@ def create_app(settings=None, embedder=None):
     from .reindex import Reindexer
 
     hub.reindexer = Reindexer(hub)
-    init_auth(app, settings.api_token, settings.auth_mode, settings.auth_proxy_header)
+    init_auth(app, settings.api_token, settings.auth_mode, settings.auth_proxy_header,
+              settings.trusted_proxy_hops)
     for m in (admin, batch, capture, entities, llm_settings, notes, pending, search, self_api, tools):
         app.register_blueprint(m.bp)
 

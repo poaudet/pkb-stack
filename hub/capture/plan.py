@@ -758,6 +758,9 @@ def normalize(conn, raw_plan: dict, raw_text: str, candidates: list[dict],
             warnings.append("type_excluded")
             continue
         raw_op, type_reject = rules.map_type(raw_op, all_types)
+        if _is_excluded_operation(conn, raw_op, excluded_types, owner_uid):
+            warnings.append("type_excluded")
+            continue
 
         forced_error = None
         converted_self = False
